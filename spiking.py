@@ -11,7 +11,12 @@ import pickle as pickle
 import brian2 as b
 from struct import unpack
 from brian2 import *
-
+import getopt
+import os
+import sys
+import scipy
+import numpy as np
+import matplotlib.cm as cmap
 
 
 
@@ -94,6 +99,32 @@ def normalize_weights():
 
 
 #------------------------------------------------------------------------------
+# Parse command line arguments
+#------------------------------------------------------------------------------
+stoc_enable = 1
+opts, args = getopt.getopt(sys.argv[1:],"hs",["help", "stoc_enable"])
+
+for opt,arg in opts:
+  if opt in ("-h", "--help"):
+     print ('---------------')
+     print ('Usage Example:')
+     print ('---------------')
+     print (os.path.basename(__file__) + ' --help        -> Print script usage example')
+     print (os.path.basename(__file__) + ' --stoc_enable -> Enable stochasticity')
+     sys.exit(1)
+  elif opt in ("-s", "--stoc_enable"):
+     stoc_enable = 1
+
+if(stoc_enable):
+   print ('--------------------------------------------------------------------')
+   print ('Synapses connecting the input and excitatory neurons are stochastic!')
+   print ('--------------------------------------------------------------------')
+else:
+   print ('------------------------------------------------------------------------')
+   print ('Synapses connecting the input and excitatory neurons are NOT stochastic!')
+   print ('------------------------------------------------------------------------')
+
+#------------------------------------------------------------------------------
 # load MNIST
 #------------------------------------------------------------------------------
 training = get_labeled_data(MNIST_data_path + 'training')
@@ -127,6 +158,21 @@ runtime = num_examples * (single_example_time + resting_time)
 
 use_testing_set       = True # add
 
+
+p_switch = np.array([0.0909, 0.0935, 0.0961, 0.1014, 0.1041, 0.1080, 0.1133, 0.1199, \
+                     0.1238, 0.1291, 0.1344, 0.1423, 0.1502, 0.1581, 0.1647, 0.1765, \
+                     0.1779, 0.1950, 0.2069, 0.2187, 0.2266, 0.2411, 0.2556, 0.2819, \
+                     0.2872, 0.3030, 0.3228, 0.3439, 0.3623, 0.3874, 0.4150, 0.4493, \
+                     0.4888, 0.5191, 0.5455, 0.5626, 0.5863, 0.6087, 0.6337, 0.6469, \
+                     0.6693, 0.6812, 0.6970, 0.7088, 0.7352, 0.7457, 0.7589, 0.7708, \
+                     0.7800, 0.7866, 0.8011, 0.8103, 0.8169, 0.8274, 0.8340, 0.8393, \
+                     0.8511, 0.8538, 0.8603, 0.8669, 0.8762, 0.8814, 0.8906])
+p_switch = p_switch - p_switch[0]
+i_switch = np.arange(1, 64)
+i_scale  = 5
+i_norm   = (i_switch*1.0) / i_scale
+
+
 v_rest_e = -65. * b.mV
 v_rest_i = -60. * b.mV
 v_reset_e = -65. * b.mV
@@ -155,35 +201,61 @@ offset = 20.0*b.mV
 v_thresh_e = '(v>(theta - offset + -52.*mV)) and (timer>refrac_e)'
 
 
+
+if test_mode:
+    scr_e        = 'timer = 0*ms'
+else:
+    theta_plus_e = 1000  * b.mV
+    theta_stop   = 100e3 * b.mV
+    scr_e        = 'theta = theta+theta_plus_e; timer = 0*ms'
+
+if(test_mode):
+   v_thresh_e = '(interp(I_post, i_norm, p_switch) > rand())'
+   #v_thresh_e = 'I_post>3'
+else:
+   v_thresh_e = '(interp(I_post, i_norm, p_switch) > rand()) * (img_label==post_label)'
+   #v_thresh_e = '(I_post>3)* (img_label==post_label)'
+
+
+
 neuron_eqs_e = '''
-        dv/dt = ((v_rest_e - v) + (I_synE+I_synI) / nS) / (100*ms)  : volt (unless refractory)
-        I_synE = ge * nS *         -v                           : amp
-        I_synI = gi * nS * (-100.*mV-v)                          : amp
-        dge/dt = -ge/(1.0*ms)                                   : 1
-        dgi/dt = -gi/(2.0*ms)                                  : 1
+        I_post = (ge-gi)                            : 1
+        I_synE = ge                                 : 1
+        I_synI = gi                                 : 1
+        dge/dt = -ge/(4.0*ms)                       : 1
+        dgi/dt = -gi/(2.0*ms)                       : 1
         '''
 if test_mode:
     neuron_eqs_e += '\n  theta      :volt'
 else:
-    neuron_eqs_e += '\n  dtheta/dt = -theta / (tc_theta)  : volt'
+    neuron_eqs_e += '\n  theta      : volt'
+    neuron_eqs_e += '\n  img_label  : 1.0'
+    neuron_eqs_e += '\n  post_label : 1.0'
 neuron_eqs_e += '\n  dtimer/dt = 0.1  : second'
 
 neuron_eqs_i = '''
-        dv/dt = ((v_rest_i - v) + (I_synE+I_synI) / nS) / (10*ms)  : volt (unless refractory)
-        I_synE = ge * nS *         -v                           : amp
-        I_synI = gi * nS * (-85.*mV-v)                          : amp
-        dge/dt = -ge/(1.0*ms)                                   : 1
-        dgi/dt = -gi/(2.0*ms)                                  : 1
+        I_post = (ge-gi)      : 1
+        I_synE = ge           : 1
+        I_synI = gi           : 1
+        dge/dt = -ge/(1.0*ms) : 1
+        dgi/dt = -gi/(2.0*ms) : 1
         '''
 
 eqs_stdp_ee = '''
-                post2before                            : 1
-                dpre/dt   =   -pre/(tc_pre_ee)         : 1 (event-driven)
-                dpost1/dt  = -post1/(tc_post_1_ee)     : 1 (event-driven)
-                dpost2/dt  = -post2/(tc_post_2_ee)     : 1 (event-driven)
+            dpre/dt  = -pre/(tc_pre_ee)      : 1.0
+            dpost/dt = -post/(tc_post_1_ee)  : 1.0
             '''
-eqs_stdp_pre_ee = 'pre = 1.; w = clip(w - nu_ee_pre * post1, 0, wmax_ee)'
-eqs_stdp_post_ee = 'post2before = post2; w = clip(w + nu_ee_post * pre * post2before, 0, wmax_ee); post1 = 1.; post2 = 1.'
+if(stoc_enable == 0):
+   eqs_stdp_pre_ee  = 'pre += 1.'
+   eqs_stdp_post_ee = 'w += (nu_ee_post * (pre - STDP_offset) * ((wmax_ee - w)**exp_ee_post)); post += 1.'
+else:
+   # hebb_dep_count   = np.zeros((n_input, n_e))
+   # eqs_stdp_pre_ee  = 'w -= ((post>=STDP_offset_dep_neg)*1.0*(prob_dep_neg>rand('+str(n_e)+'))); pre = 1.; hebb_dep_count += ((post>=STDP_offset_dep_neg)*1.0)'
+   eqs_stdp_pre_ee = 'w -= ((post>rand(' + str(n_e) + '))*1.0); pre = pre_rst'
+
+   # hebb_pot_count   = np.zeros((n_input, n_e))
+   # eqs_stdp_post_ee = 'rand_updt_onebit = rand('+str(n_input)+'); w += ((pre>=STDP_offset_pot)*1.0*(prob_pot>rand_updt_onebit)) + ((pre<=STDP_offset_dep)*-1.0*(prob_dep>rand_updt_onebit)); post = 1.; hebb_pot_count += ((pre>=STDP_offset_pot)*1.0); antihebb_dep_count += ((pre<=STDP_offset_dep)*1.0)'
+   eqs_stdp_post_ee = 'w += ((pre>rand('+str(n_input)+'))*1.0); post = post_rst'
 
 neuron_groups = {}
 input_groups = {}
@@ -194,6 +266,22 @@ if test_mode:
 
 neuron_groups['Ae'] = b.NeuronGroup(n_e, neuron_eqs_e, threshold= v_thresh_e, refractory= refrac_e, reset= scr_e, method='euler')
 neuron_groups['Ai'] = b.NeuronGroup(n_i, neuron_eqs_i, threshold= v_thresh_i, refractory= refrac_i, reset= v_reset_i, method='euler')
+
+
+#--------------------------------------------------------------------------
+# SNN connectivity specification
+#--------------------------------------------------------------------------
+conn_structure         = 'sparse'
+delay                  = {}
+input_population_names = ['X']
+population_names       = ['A']
+input_connection_names = ['XA']
+save_conns             = ['XeAe','AeAi', 'AiAe']
+input_conn_names       = ['ee_input']
+recurrent_conn_names   = ['ei', 'ie']
+delay['ee_input']      = (0*b.ms,10*b.ms)
+delay['ei_input']      = (0*b.ms,5*b.ms)
+
 
 
 #------------------------------------------------------------------------------
