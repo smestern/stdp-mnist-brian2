@@ -7,15 +7,18 @@ Created on 15.12.2014
 
 import numpy as np
 import os.path
-import cPickle as pickle
+import pickle as pickle
 import brian2 as b
 from struct import unpack
 from brian2 import *
 
+
+
+
 prefs.codegen.target = 'cython'
 
 # specify the location of the MNIST data
-MNIST_data_path = ''
+MNIST_data_path = 'C:/MNIST/'
 
 #------------------------------------------------------------------------------
 # functions
@@ -29,11 +32,11 @@ def get_labeled_data(picklename, bTrain = True):
     else:
         # Open the images with gzip in read binary mode
         if bTrain:
-            images = open(MNIST_data_path + 'train-images-idx3-ubyte','rb')
-            labels = open(MNIST_data_path + 'train-labels-idx1-ubyte','rb')
+            images = open(MNIST_data_path + 'train-images.idx3-ubyte','rb')
+            labels = open(MNIST_data_path + 'train-labels.idx1-ubyte','rb')
         else:
-            images = open(MNIST_data_path + 't10k-images-idx3-ubyte','rb')
-            labels = open(MNIST_data_path + 't10k-labels-idx1-ubyte','rb')
+            images = open(MNIST_data_path + 't10k-images.idx3-ubyte','rb')
+            labels = open(MNIST_data_path + 't10k-labels.idx1-ubyte','rb')
         # Get metadata for images
         images.read(4)  # skip the magic_number
         number_of_images = unpack('>I', images.read(4))[0]
@@ -48,10 +51,10 @@ def get_labeled_data(picklename, bTrain = True):
         # Get the data
         x = np.zeros((N, rows, cols), dtype=np.uint8)  # Initialize numpy array
         y = np.zeros((N, 1), dtype=np.uint8)  # Initialize numpy array
-        for i in xrange(N):
+        for i in range(N):
             if i % 1000 == 0:
                 print("i: %i" % i)
-            x[i] = [[unpack('>B', images.read(1))[0] for unused_col in xrange(cols)]  for unused_row in xrange(rows) ]
+            x[i] = [[unpack('>B', images.read(1))[0] for unused_col in range(cols)]  for unused_row in range(rows) ]
             y[i] = unpack('>B', labels.read(1))[0]
 
         data = {'x': x, 'y': y, 'rows': rows, 'cols': cols}
@@ -60,7 +63,7 @@ def get_labeled_data(picklename, bTrain = True):
 
 def get_matrix_from_file(fileName, n_src, n_tgt):
     readout = np.load(fileName)
-    print readout.shape, fileName
+    print( readout.shape, fileName)
     value_arr = np.zeros((n_src, n_tgt))
     if not readout.shape == (0,):
         value_arr[np.int32(readout[:,0]), np.int32(readout[:,1])] = readout[:,2]
@@ -68,13 +71,13 @@ def get_matrix_from_file(fileName, n_src, n_tgt):
 
 
 def save_connections():
-    print 'save connections'
+    print( 'save connections')
     conn = connections['XeAe']
     connListSparse = zip(conn.i, conn.j, conn.w)
     np.save(data_path + 'weights/XeAe', connListSparse)
 
 def save_theta():
-    print 'save theta'
+    print( 'save theta')
     np.save(data_path + 'weights/theta_A', neuron_groups['Ae'].theta)
 
 def normalize_weights():
@@ -85,7 +88,7 @@ def normalize_weights():
     temp_conn = np.copy(connection)
     colSums = np.sum(temp_conn, axis = 0)
     colFactors = 78./colSums
-    for j in xrange(n_e):
+    for j in range(n_e):
         temp_conn[:,j] *= colFactors[j]
     connections['XeAe'].w = temp_conn[connections['XeAe'].i, connections['XeAe'].j]
 
@@ -103,19 +106,26 @@ testing = get_labeled_data(MNIST_data_path + 'testing', bTrain = False)
 test_mode = True
 
 np.random.seed(0)
-data_path = './'
+data_path = 'C:/MNIST/'
+'''
 if test_mode:
     num_examples = 10000
 else:
     num_examples = 60000 * 3
-
+'''
+num_examples        = 6000 * 1 # 추가
+ending    = '' # 추가
+n_output  = 10 # 추가
 
 n_input = 784
 n_e = 400
 n_i = n_e
-single_example_time =   0.35 * b.second #
+
+single_example_time =   0.35 * b.second
 resting_time = 0.15 * b.second
 runtime = num_examples * (single_example_time + resting_time)
+
+use_testing_set       = True # add
 
 v_rest_e = -65. * b.mV
 v_rest_i = -60. * b.mV
@@ -189,7 +199,7 @@ neuron_groups['Ai'] = b.NeuronGroup(n_i, neuron_eqs_i, threshold= v_thresh_i, re
 #------------------------------------------------------------------------------
 # create network population and recurrent connections
 #------------------------------------------------------------------------------
-print 'create neuron group A'
+print( 'create neuron group A')
 
 neuron_groups['Ae'].v = v_rest_e - 40. * b.mV
 neuron_groups['Ai'].v = v_rest_i - 40. * b.mV
@@ -198,7 +208,7 @@ if test_mode:
 else:
     neuron_groups['Ae'].theta = np.ones((n_e)) * 20.0*b.mV
 
-print 'create recurrent connections'
+print( 'create recurrent connections')
 weightMatrix = get_matrix_from_file(data_path + 'random/AeAi.npy', n_e, n_i)
 connections['AeAi'] = b.Synapses(neuron_groups['Ae'], neuron_groups['Ai'], model='w : 1', on_pre='ge_post += w')
 connections['AeAi'].connect(True) # all-to-all connection
@@ -209,7 +219,7 @@ connections['AiAe'] = b.Synapses(neuron_groups['Ai'], neuron_groups['Ae'], model
 connections['AiAe'].connect(True) # all-to-all connection
 connections['AiAe'].w = weightMatrix[connections['AiAe'].i, connections['AiAe'].j]
 
-print 'create monitors for Ae'
+print( 'create monitors for Ae')
 spike_counters['Ae'] = b.SpikeMonitor(neuron_groups['Ae'])
 
 #------------------------------------------------------------------------------
@@ -217,7 +227,7 @@ spike_counters['Ae'] = b.SpikeMonitor(neuron_groups['Ae'])
 #------------------------------------------------------------------------------
 input_groups['Xe'] = b.PoissonGroup(n_input, 0*Hz)
 
-print 'create connections between X and A'
+print( 'create connections between X and A')
 if test_mode:
     weightMatrix = get_matrix_from_file(data_path + 'weights/XeAe.npy', n_input, n_e)
 else:
@@ -227,7 +237,7 @@ pre = 'ge_post += w'
 post = ''
 
 if not test_mode:
-    print 'create STDP for connection XeAe'
+    print( 'create STDP for connection XeAe')
     model += eqs_stdp_ee
     pre += '; ' + eqs_stdp_pre_ee
     post = eqs_stdp_post_ee
@@ -277,7 +287,7 @@ while j < (int(num_examples)):
             result_monitor[j,:] = current_spike_count
             input_numbers[j] = testing['y'][j%10000][0]
         if j % 100 == 0 and j > 0:
-            print 'runs done:', j, 'of', int(num_examples)
+            print( 'runs done:', j, 'of', int(num_examples))
         input_groups['Xe'].rates = 0 * Hz
         net.run(resting_time)
         input_intensity = start_input_intensity
@@ -287,7 +297,7 @@ while j < (int(num_examples)):
 #------------------------------------------------------------------------------
 # save results
 #------------------------------------------------------------------------------
-print 'save results'
+print( 'save results')
 if not test_mode:
     save_theta()
     save_connections()
