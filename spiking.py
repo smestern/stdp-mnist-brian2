@@ -103,7 +103,7 @@ testing = get_labeled_data(MNIST_data_path + 'testing', bTrain = False)
 #------------------------------------------------------------------------------
 # set parameters and equations
 #------------------------------------------------------------------------------
-test_mode = True
+test_mode = False
 
 np.random.seed(0)
 data_path = ''
@@ -113,7 +113,7 @@ if test_mode:
 else:
     num_examples = 60000 * 3
 '''
-num_examples        = 60 * 1 # 추가
+num_examples =  600 * 1 # 추가
 ending    = '' # 추가
 n_output  = 10 # 추가
 

@@ -80,8 +80,8 @@ def get_new_assignments(result_monitor, input_numbers):
 
 MNIST_data_path = os.getcwd()+'/MNIST/'
 data_path = './activity/'
-training_ending = '10000'
-testing_ending = '10000'
+training_ending = '60'
+testing_ending = '60'
 start_time_training = 0
 end_time_training = int(training_ending)
 start_time_testing = 0
@@ -112,7 +112,7 @@ assignments = get_new_assignments(training_result_monitor[start_time_training:en
                                   training_input_numbers[start_time_training:end_time_training])
 print( assignments)
 counter = 0
-num_tests = end_time_testing / 10000
+num_tests = end_time_testing / int(training_ending)
 sum_accurracy = [0] * int(num_tests)
 while (counter < num_tests):
     end_time = min(end_time_testing, 10000*(counter+1))
