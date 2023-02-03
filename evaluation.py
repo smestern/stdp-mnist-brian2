@@ -23,7 +23,7 @@ def get_labeled_data(picklename, bTrain = True):
        it as list of tuples.
     """
     if os.path.isfile('%s.pickle' % picklename):
-        data = pickle.load(open('%s.pickle' % picklename))
+        data = pickle.load(open('%s.pickle' % picklename, 'rb'))
     else:
         # Open the images with gzip in read binary mode
         if bTrain:
@@ -78,7 +78,7 @@ def get_new_assignments(result_monitor, input_numbers):
                 assignments[i] = j
     return assignments
 
-MNIST_data_path = 'C:/MNIST/'
+MNIST_data_path = os.getcwd()+'/MNIST/'
 data_path = './activity/'
 training_ending = '10000'
 testing_ending = '10000'
@@ -96,6 +96,7 @@ training = get_labeled_data(MNIST_data_path + 'training')
 testing = get_labeled_data(MNIST_data_path + 'testing', bTrain = False)
 
 print( 'load results')
+
 training_result_monitor = np.load(data_path + 'resultPopVecs' + training_ending + ending + '.npy')
 training_input_numbers = np.load(data_path + 'inputNumbers' + training_ending + '.npy')
 testing_result_monitor = np.load(data_path + 'resultPopVecs' + testing_ending + '.npy')

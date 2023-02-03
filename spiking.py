@@ -18,7 +18,7 @@ from brian2 import *
 prefs.codegen.target = 'cython'
 
 # specify the location of the MNIST data
-MNIST_data_path = 'C:/MNIST/'
+MNIST_data_path = 'C:/Users/SMest/source/repos/stdp-mnist-brian2/MNIST/'
 
 #------------------------------------------------------------------------------
 # functions
@@ -28,7 +28,7 @@ def get_labeled_data(picklename, bTrain = True):
        it as list of tuples.
     """
     if os.path.isfile('%s.pickle' % picklename):
-        data = pickle.load(open('%s.pickle' % picklename))
+        data = pickle.load(open('%s.pickle' % picklename, 'rb'))
     else:
         # Open the images with gzip in read binary mode
         if bTrain:
@@ -73,7 +73,7 @@ def get_matrix_from_file(fileName, n_src, n_tgt):
 def save_connections():
     print( 'save connections')
     conn = connections['XeAe']
-    connListSparse = zip(conn.i, conn.j, conn.w)
+    connListSparse = list(zip(conn.i, conn.j, conn.w))
     np.save(data_path + 'weights/XeAe', connListSparse)
 
 def save_theta():
@@ -106,14 +106,14 @@ testing = get_labeled_data(MNIST_data_path + 'testing', bTrain = False)
 test_mode = True
 
 np.random.seed(0)
-data_path = 'C:/MNIST/'
+data_path = ''
 '''
 if test_mode:
     num_examples = 10000
 else:
     num_examples = 60000 * 3
 '''
-num_examples        = 6000 * 1 # 추가
+num_examples        = 60 * 1 # 추가
 ending    = '' # 추가
 n_output  = 10 # 추가
 
