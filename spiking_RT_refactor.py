@@ -15,7 +15,8 @@ from brian2 import *
 
 
 
-prefs.codegen.target = 'cython'
+device.set_device('cpp_standalone', build_on_run=False)
+
 
 # specify the location of the MNIST data
 MNIST_data_path = 'C:/Users/SMest/source/repos/stdp-mnist-brian2/MNIST/'
@@ -23,6 +24,30 @@ MNIST_data_path = 'C:/Users/SMest/source/repos/stdp-mnist-brian2/MNIST/'
 #------------------------------------------------------------------------------
 # functions
 #------------------------------------------------------------------------------
+################################################################################
+# Helper functions that expose some internal Brian machinery
+def initialize_parameter(variableview, value):
+    variable = variableview.variable
+    array_name = device.get_array_name(variable)
+    static_array_name = device.static_array(array_name, value)
+    device.main_queue.append(('set_by_array', (array_name,
+                                               static_array_name,
+                                               False)))
+    return static_array_name
+
+
+def set_parameter_value(identifier, value):
+    np.atleast_1d(value).tofile(os.path.join(device.project_dir,
+                                             'static_arrays',
+                                             identifier))
+
+def run_again():
+    device.run(device.project_dir, with_output=False, run_args=[])
+
+
+
+
+
 def get_labeled_data(picklename, bTrain = True):
     """Read input-vector (image) and target class (label, 0-9) and return
        it as list of tuples.
@@ -92,35 +117,11 @@ def normalize_weights():
         temp_conn[:,j] *= colFactors[j]
     connections['XeAe'].w = temp_conn[connections['XeAe'].i, connections['XeAe'].j]
 
-
-#------------------------------------------------------------------------------
-# load MNIST
-#------------------------------------------------------------------------------
-training = get_labeled_data(MNIST_data_path + 'training')
-testing = get_labeled_data(MNIST_data_path + 'testing', bTrain = False)
-
-
-#------------------------------------------------------------------------------
-# set parameters and equations
-#------------------------------------------------------------------------------
-test_mode = True
-
-np.random.seed(0)
-data_path = ''
-'''
-if test_mode:
-    num_examples = 10000
-else:
-    num_examples = 60000 * 3
-'''
-num_examples =  6000 * 1 # 추가
-ending    = '' # 추가
-n_output  = 10 # 추가
-def run_network(runtime, input_intensity, num_examples, ending):
+def run_network(j, rate, test_mode = False):
     device.reinit()
-    n_input = 784
-    n_e = 400
-    n_i = n_e
+    device.reactivate()
+    
+    
 
     single_example_time =   0.35 * b.second
     resting_time = 0.15 * b.second
@@ -136,8 +137,6 @@ def run_network(runtime, input_intensity, num_examples, ending):
     refrac_e = 5. * b.ms
     refrac_i = 2. * b.ms
 
-    input_intensity = 2.
-    start_input_intensity = input_intensity
 
     tc_pre_ee = 20*b.ms
     tc_post_1_ee = 20*b.ms
@@ -190,8 +189,7 @@ def run_network(runtime, input_intensity, num_examples, ending):
     input_groups = {}
     connections = {}
     spike_counters = {}
-    if test_mode:
-        result_monitor = np.zeros((num_examples,n_e))
+    
 
     neuron_groups['Ae'] = b.NeuronGroup(n_e, neuron_eqs_e, threshold= v_thresh_e, refractory= refrac_e, reset= scr_e, method='euler')
     neuron_groups['Ai'] = b.NeuronGroup(n_i, neuron_eqs_i, threshold= v_thresh_i, refractory= refrac_i, reset= v_reset_i, method='euler')
@@ -263,11 +261,56 @@ def run_network(runtime, input_intensity, num_examples, ending):
         for key in obj_list:
             net.add(obj_list[key])
 
-    previous_spike_count = np.zeros(n_e)
-    input_numbers = [0] * num_examples
-    input_groups['Xe'].rates = 0 * Hz
-    net.run(0*second)
     
+    net.run(0*second)
+    input_groups['Xe'].rates = rate * Hz
+    net.run(single_example_time, report='text')
+    input_groups['Xe'].rates = 0 * Hz
+    net.run(resting_time)
+    if j == 0:
+        device.build(directory='output', compile=True, run=False, debug=False)
+    else:
+        device.run(device.project_dir, with_output=False, run_args=[])
+    return spike_counters
+
+
+#------------------------------------------------------------------------------
+# load MNIST
+#------------------------------------------------------------------------------
+training = get_labeled_data(MNIST_data_path + 'training')
+testing = get_labeled_data(MNIST_data_path + 'testing', bTrain = False)
+
+
+#------------------------------------------------------------------------------
+# set parameters and equations
+#------------------------------------------------------------------------------
+test_mode = True
+
+np.random.seed(0)
+data_path = ''
+'''
+if test_mode:
+    num_examples = 10000
+else:
+    num_examples = 60000 * 3
+'''
+num_examples =  6000 * 1 # 추가
+ending    = '' # 추가
+n_output  = 10 # 추가
+n_e = 400
+n_i = n_e
+n_input = 784
+
+input_intensity = 2.
+start_input_intensity = input_intensity
+
+previous_spike_count = np.zeros(n_e)
+input_numbers = [0] * num_examples
+
+if test_mode:
+        result_monitor = np.zeros((num_examples,n_e))
+
+
 j = 0
 while j < (int(num_examples)):
     if test_mode:
@@ -275,23 +318,19 @@ while j < (int(num_examples)):
     else:
         normalize_weights()
         rate = training['x'][j%60000,:,:].reshape((n_input)) / 8. *  input_intensity
-    input_groups['Xe'].rates = rate * Hz
-    net.run(single_example_time, report='text')
+    spike_counters = run_network(j, rate, test_mode)
 
     current_spike_count = np.asarray(spike_counters['Ae'].count[:]) - previous_spike_count
     previous_spike_count = np.copy(spike_counters['Ae'].count[:])
     if np.sum(current_spike_count) < 5:
         input_intensity += 1
-        input_groups['Xe'].rates = 0 * Hz
-        net.run(resting_time)
+        
     else:
         if test_mode:
             result_monitor[j,:] = current_spike_count
             input_numbers[j] = testing['y'][j%10000][0]
         if j % 100 == 0 and j > 0:
             print( 'runs done:', j, 'of', int(num_examples))
-        input_groups['Xe'].rates = 0 * Hz
-        net.run(resting_time)
         input_intensity = start_input_intensity
         j += 1
 
