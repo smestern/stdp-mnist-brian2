@@ -1,4 +1,6 @@
 *.npy
 *ubyte
 *.pickle
-
+/sequential/**
+/tmp/**
+/output/*
