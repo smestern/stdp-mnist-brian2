@@ -14,7 +14,7 @@ import pickle as pickle
 from struct import unpack
 from brian2 import *
 
-
+CLASSES_SEEN = 2
 #------------------------------------------------------------------------------
 # functions
 #------------------------------------------------------------------------------
@@ -55,9 +55,9 @@ def get_labeled_data(picklename, bTrain = True):
     return data
 
 def get_recognized_number_ranking(assignments, spike_rates):
-    summed_rates = [0] * 10
-    num_assignments = [0] * 10
-    for i in range(10):
+    summed_rates = [0] * CLASSES_SEEN
+    num_assignments = [0] * CLASSES_SEEN
+    for i in range(CLASSES_SEEN):
         num_assignments[i] = len(np.where(assignments == i)[0])
         if num_assignments[i] > 0:
             summed_rates[i] = np.sum(spike_rates[assignments == i]) / num_assignments[i]
@@ -68,7 +68,7 @@ def get_new_assignments(result_monitor, input_numbers):
     assignments = np.ones(n_e) * -1 # initialize them as not assigned
     input_nums = np.asarray(input_numbers)
     maximum_rate = [0] * n_e
-    for j in range(10):
+    for j in range(CLASSES_SEEN):
         num_inputs = len(np.where(input_nums == j)[0])
         if num_inputs > 0:
             rate = np.sum(result_monitor[input_nums == j], axis = 0) / num_inputs
@@ -80,15 +80,15 @@ def get_new_assignments(result_monitor, input_numbers):
 
 MNIST_data_path = os.getcwd()+'/MNIST/'
 data_path = './activity/'
-training_ending = '600'
-testing_ending = '600'
-SUM_TOTAL_TESTS = 600
+training_ending = '3000'
+testing_ending = '3000'
+SUM_TOTAL_TESTS = 3000
 start_time_training = 0
 end_time_training = int(training_ending)
 start_time_testing = 0
 end_time_testing = int(testing_ending)
 
-n_e = 400
+n_e = 40
 n_input = 784
 ending = ''
 
@@ -105,10 +105,10 @@ testing_input_numbers = np.load(data_path + 'inputNumbers' + testing_ending + '.
 print( training_result_monitor.shape)
 
 print( 'get assignments')
-test_results = np.zeros((10, end_time_testing-start_time_testing))
-test_results_max = np.zeros((10, end_time_testing-start_time_testing))
-test_results_top = np.zeros((10, end_time_testing-start_time_testing))
-test_results_fixed = np.zeros((10, end_time_testing-start_time_testing))
+test_results = np.zeros((CLASSES_SEEN, end_time_testing-start_time_testing))
+test_results_max = np.zeros((CLASSES_SEEN, end_time_testing-start_time_testing))
+test_results_top = np.zeros((CLASSES_SEEN, end_time_testing-start_time_testing))
+test_results_fixed = np.zeros((CLASSES_SEEN, end_time_testing-start_time_testing))
 assignments = get_new_assignments(training_result_monitor[start_time_training:end_time_training],
                                   training_input_numbers[start_time_training:end_time_training])
 print( assignments)
@@ -118,7 +118,7 @@ sum_accurracy = [0] * int(num_tests)
 while (counter < num_tests):
     end_time = min(end_time_testing, SUM_TOTAL_TESTS*(counter+1))
     start_time = SUM_TOTAL_TESTS*counter
-    test_results = np.zeros((10, end_time-start_time))
+    test_results = np.zeros((CLASSES_SEEN, end_time-start_time))
     print( 'calculate accuracy for sum')
     for i in range(end_time - start_time):
         test_results[:,i] = get_recognized_number_ranking(assignments,
@@ -130,6 +130,28 @@ while (counter < num_tests):
     print( 'Sum response - accuracy: ', sum_accurracy[counter], ' num incorrect: ', len(incorrect))
     counter += 1
 print( 'Sum response - accuracy --> mean: ', np.mean(sum_accurracy),  '--> standard deviation: ', np.std(sum_accurracy))
+
+
+#train a classifier on the training data
+from sklearn import svm
+from sklearn.metrics import accuracy_score, f1_score
+
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import cross_val_score
+x_train, x_test, y_train, y_test = train_test_split(testing_result_monitor[:, np.random.randint(0, 40, 40//2)], testing_input_numbers, test_size=0.3, stratify=testing_input_numbers, random_state=0)
+clf = svm.SVC()
+clf.fit(x_train, y_train)
+y_pred = clf.predict(x_test)
+print( 'SVM accuracy: ', accuracy_score(y_test, y_pred))
+print( 'SVM f1 score: ', f1_score(y_test, y_pred,))
+
+#also run pca
+from sklearn.decomposition import PCA
+pca = PCA(n_components=2)
+pca.fit(testing_result_monitor)
+x_pca = pca.transform(testing_result_monitor)
+plt.scatter(x_pca[:,0], x_pca[:,1], c=testing_input_numbers)
+
 
 
 show()
