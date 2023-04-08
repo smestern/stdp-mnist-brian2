@@ -80,15 +80,15 @@ def get_new_assignments(result_monitor, input_numbers):
 
 MNIST_data_path = os.getcwd()+'/MNIST/'
 data_path = './activity/'
-training_ending = '3000'
-testing_ending = '3000'
-SUM_TOTAL_TESTS = 3000
+training_ending = '300'
+testing_ending = '300'
+SUM_TOTAL_TESTS = 300
 start_time_training = 0
 end_time_training = int(training_ending)
 start_time_testing = 0
 end_time_testing = int(testing_ending)
 
-n_e = 40
+n_e = 10
 n_input = 784
 ending = ''
 
@@ -134,16 +134,23 @@ print( 'Sum response - accuracy --> mean: ', np.mean(sum_accurracy),  '--> stand
 
 #train a classifier on the training data
 from sklearn import svm
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import balanced_accuracy_score, f1_score
 
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score
-x_train, x_test, y_train, y_test = train_test_split(testing_result_monitor[:, np.random.randint(0, 40, 40//2)], testing_input_numbers, test_size=0.3, stratify=testing_input_numbers, random_state=0)
+x_train, x_test, y_train, y_test = train_test_split(testing_result_monitor[:, np.random.randint(0, 10, 10)], testing_input_numbers, test_size=0.3, stratify=testing_input_numbers, random_state=0)
 clf = svm.SVC()
 clf.fit(x_train, y_train)
 y_pred = clf.predict(x_test)
-print( 'SVM accuracy: ', accuracy_score(y_test, y_pred))
-print( 'SVM f1 score: ', f1_score(y_test, y_pred,))
+print( 'SVM accuracy: ', balanced_accuracy_score(y_test, y_pred))
+print( 'SVM f1 score: ', f1_score(y_test, y_pred, average='macro'))
+
+#save the classifier
+import pickle
+filename = 'svm_classifier.sav'
+pickle.dump(clf, open(filename, 'wb'))
+
+
 
 #also run pca
 from sklearn.decomposition import PCA

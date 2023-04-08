@@ -12,6 +12,13 @@ import brian2 as b
 from struct import unpack
 from brian2 import *
 import time
+from matplotlib.widgets import LassoSelector
+from matplotlib.path import Path
+#load the classifier
+import pickle
+with open('svm_classifier.sav', 'rb') as f:
+    clf = pickle.load(f)
+
 
 
 
@@ -70,15 +77,7 @@ def get_matrix_from_file(fileName, n_src, n_tgt):
     return value_arr
 
 
-def save_connections():
-    print( 'save connections')
-    conn = connections['XeAe']
-    connListSparse = list(zip(conn.i, conn.j, conn.w))
-    np.save(data_path + 'weights/XeAe', connListSparse)
 
-def save_theta():
-    print( 'save theta')
-    np.save(data_path + 'weights/theta_A', neuron_groups['Ae'].theta)
 
 def normalize_weights():
     len_source = len(connections['XeAe'].source)
@@ -92,6 +91,55 @@ def normalize_weights():
         temp_conn[:,j] *= colFactors[j]
     connections['XeAe'].w = temp_conn[connections['XeAe'].i, connections['XeAe'].j]
 
+def clear(arg):
+    ax.clear()
+    #draw some zeros
+    ax.imshow(np.zeros((28,28)), cmap='gray', interpolation='nearest', vmin=0, vmax=1)
+    fig.canvas.draw()
+
+def onselect(verts):
+    global previous_spike_count 
+    bins = np.linspace(0, 28, 29)
+    #its an 28x28 grid so we need to find the square that was selected
+    verts = np.vstack(verts)
+    #find the intersection of the selected path and the grid
+    #this is a bit of a hack but it works
+    #bin the verts into a grid
+    digit, xedges, yedges = np.histogram2d(verts[:,0], verts[:,1], bins=bins)
+    digit = np.transpose(digit)
+    ax.clear()
+    ax.imshow(digit, cmap='gray', interpolation='nearest', vmin=0, vmax=1)
+    fig.canvas.draw()
+
+    #feed the digit into the network
+    #reshape the digit into a vector
+    i = 1
+    output = np.zeros((10,))
+    
+    while True:
+        digit = digit.reshape(784)
+        #normalize the digit
+        digit = digit / np.max(digit)
+        #set the input layer to the digit
+        input_groups['Xe'].rates = digit * 256 * i * Hz
+        #run the network for 350ms
+        net.run(0.35 * b.second)
+        #clear the input layer
+        input_groups['Xe'].rates = 0 * Hz
+        #run the network for 150ms
+        net.run(0.15 * b.second)
+        #get the output
+        output = spike_counters['Ae'].count[:] - previous_spike_count
+        i += 1
+        previous_spike_count = np.copy(spike_counters['Ae'].count[:])
+        if np.sum(output) > 0:
+            break
+    #feed it into the classifier
+    out = clf.predict(output.reshape(1,-1))
+    print(out)
+    print(output)
+
+    
 
 #------------------------------------------------------------------------------
 # load MNIST
@@ -270,49 +318,40 @@ j = 0
 np.random.seed(42)
 numbers_to_obs = np.arange(4).tolist()
 
-
+plt.ion()
 start_time = time.time()
-while j < (int(num_examples)):
-    if test_mode and (testing['y'][j%60000][0] not in numbers_to_obs):
-        
-        j += 1
-        continue
-    elif not test_mode and (training['y'][j%10000][0] not in numbers_to_obs):
-        j += 1
-        continue
-    if test_mode:
-        rate = testing['x'][j%10000,:,:].reshape((n_input)) / 8. *  input_intensity
-    else:
-        normalize_weights()
-        rate = training['x'][j%60000,:,:].reshape((n_input)) / 8. *  input_intensity
-    input_groups['Xe'].rates = rate * Hz
-    net.run(single_example_time, report='text')
 
-    current_spike_count = np.asarray(spike_counters['Ae'].count[:]) - previous_spike_count
-    previous_spike_count = np.copy(spike_counters['Ae'].count[:])
-    if np.sum(current_spike_count) < 5:
-        input_intensity += 1
-        input_groups['Xe'].rates = 0 * Hz
-        net.run(resting_time)
-    else:
-        if test_mode:
-            result_monitor[j,:] = current_spike_count
-            input_numbers[j] = testing['y'][j%10000][0]
-        if j % 100 == 0 and j > 0:
-            print( 'runs done:', j, 'of', int(num_examples))
-        input_groups['Xe'].rates = 0 * Hz
-        net.run(resting_time)
-        input_intensity = start_input_intensity
-        j += 1
+fig, ax = plt.subplots(1, 1)
+#plot an 8,8 image of zeros
+imshowshow = ax.imshow(np.zeros((28,28)), cmap='gray')
 
+#add a lasso selector
+# line defines the color, width and opacity
+# of the line to be drawn
+line = {'color': 'white', 
+        'linewidth': 8, 'alpha': 1}
+lasso = LassoSelector(ax, onselect, lineprops=line)
+#add a button to clear the selection
+from matplotlib.widgets import Button
+button = Button(plt.axes([0.7, 0.05, 0.1, 0.075]), 'Clear')
+button.on_clicked(clear)
+
+# try:
+while True:
+    
+    fig.waitforbuttonpress()
+#         #get the next input
+#         input_numbers[j] = np.random.randint(0, 4)
+#         input_numbers[j] = numbers_to_obs[j]
+#         print( 'input number:', input_numbers[j])
+#         #input_groups['Xe'].rates = input_images[input_numbers[j]] * Hz
+#         #net.run(0.35*second)
+#         input_groups['Xe'].rates = 0 * Hz
+#         #net.run(0.15*second)    
+
+#         #get the spikes
+#         #spike_id = spike_counters['Ae'].count()
+#         time.sleep(1)
+# except KeyboardInterrupt:
+#     pass
 print( 'simulation time:', time.time() - start_time)
-#------------------------------------------------------------------------------
-# save results
-#------------------------------------------------------------------------------
-print( 'save results')
-if not test_mode:
-    save_theta()
-    save_connections()
-else:
-    np.save(data_path + 'activity/resultPopVecs' + str(num_examples), result_monitor)
-    np.save(data_path + 'activity/inputNumbers' + str(num_examples), input_numbers)
