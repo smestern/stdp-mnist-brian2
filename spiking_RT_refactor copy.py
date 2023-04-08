@@ -14,6 +14,8 @@ from brian2 import *
 from ni_interface.ni_brian2 import *
 import time
 
+defaultclock.dt = 0.1*ms
+
 set_device('cpp_standalone', build_on_run=False)
 #device = get_device()
 
@@ -126,7 +128,7 @@ def plot_state(state_monitor, spike_monitor):
 #------------------------------------------------------------------------------
 # set parameters and equations
 #------------------------------------------------------------------------------
-test_mode = True
+test_mode = False
 
 np.random.seed(0)
 data_path = ''
@@ -139,7 +141,7 @@ else:
 num_examples =  600 * 1 # 추가
 ending    = '' # 추가
 n_output  = 10 # 추가
-n_e = 400
+n_e =10
 n_i = n_e
 n_input = 784
 
@@ -189,7 +191,7 @@ neuron_eqs_e = '''
         dv/dt = ((v_rest_e - v) + (I_synE+I_synI) / nS) / (100*ms)  : volt (unless refractory)
         I_synE = ge * nS *         -v                           : amp
         I_synI = gi * nS * (-100.*mV-v)                          : amp
-        I_total = I_synE + I_synI                                : amp
+        I_total = clip(I_synE + I_synI, -250*pA, 250*pA)                                : amp
         dge/dt = -ge/(1.0*ms)                                   : 1
         dgi/dt = -gi/(2.0*ms)                                  : 1
         thresh_offset_RT : volt
@@ -217,15 +219,12 @@ eqs_stdp_ee = '''
 eqs_stdp_pre_ee = 'pre = 1.; w = clip(w - nu_ee_pre * post1, 0, wmax_ee)'
 eqs_stdp_post_ee = 'post2before = post2; w = clip(w + nu_ee_post * pre * post2before, 0, wmax_ee); post1 = 1.; post2 = 1.'
 
-neuron_groups = {}
-input_groups = {}
-connections = {}
-spike_counters = {}
-state_monitors = {}
 
 neuron_groups_ae = b.NeuronGroup(n_e, neuron_eqs_e, threshold= v_thresh_e, refractory= refrac_e, reset= scr_e, method='euler')
 neuron_groups_ai = b.NeuronGroup(n_i, neuron_eqs_i, threshold= v_thresh_i, refractory= refrac_i, reset= v_reset_i, method='euler')
-
+#------------------------------------------------------------------------------
+# attach the dynamic clamp'd neuron to the network
+#------------------------------------------------------------------------------
 dyn_clamp_neuron, group = attach_neuron(neuron_groups_ae, 0, 'v', 'I_total', dt=defaultclock.dt)
 dyn_clamp_neuron.thresh_offset_RT = 20*b.mV
 dyn_clamp_neuron.v = -65. * b.mV
@@ -310,7 +309,7 @@ connections_xeae.w = weightMatrix[XeAe_idxs[:,0], XeAe_idxs[:,1]]
 # for obj_list in [neuron_groups, input_groups, connections, spike_counters, state_monitors]:
 #     for key in obj_list:
 #         net.add(obj_list[key])
-device = init_neuron_device(device, scalefactor_out=2)
+device = init_neuron_device(device)
 zero_arr = np.zeros(n_input)
 #param_rate = initialize_parameter(input_groups_xe.rates, zero_arr )
 run(single_example_time, report='text')
@@ -329,13 +328,24 @@ testing = get_labeled_data(MNIST_data_path + 'testing', bTrain = False)
 start_time = time.time()
 #get the network run duration
 #network = list(device.networks)[0]
-i = 0
-j = 0
+
+numbers_to_obs = np.arange(2).tolist()
+
+i = 0 #number of times loop has run, mostly for checking the iter
+j = 0 #j is example number
 while j < (int(num_examples)):
+    if test_mode and (testing['y'][j%60000][0] not in numbers_to_obs):
+        
+        j += 1
+        continue
+    elif not test_mode and (training['y'][j%10000][0] not in numbers_to_obs):
+        j += 1
+        continue
     if test_mode:
         rate = testing['x'][j%10000,:,:].reshape((n_input)) / 8. *  input_intensity
     else:
-        normalize_weights()
+        if i > 0:
+            normalize_weights()
         rate = training['x'][j%60000,:,:].reshape((n_input)) / 8. *  input_intensity
     #set_the new rates, propagate the weights and theta
     run_network(device, i)
@@ -344,7 +354,6 @@ while j < (int(num_examples)):
     previous_spike_count = np.copy(spike_counters_ae.count[:])
     if np.sum(current_spike_count) < 5:
         input_intensity += 1
-        #set_parameter_value(param_rate, zero_arr )
         rate = zero_arr
         run_network(device, i)
     else:

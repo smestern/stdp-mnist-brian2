@@ -11,7 +11,7 @@ import pickle as pickle
 import brian2 as b
 from struct import unpack
 from brian2 import *
-
+import time
 
 
 
@@ -113,9 +113,9 @@ if test_mode:
 else:
     num_examples = 60000 * 3
 '''
-num_examples =  6000 * 1 # 추가
+num_examples =  3000 * 1 # 추가
 ending    = '' # 추가
-n_output  = 10 # 추가
+n_output  =2 # 추가
 
 n_input = 784
 n_e = 40
@@ -267,11 +267,19 @@ input_numbers = [0] * num_examples
 input_groups['Xe'].rates = 0 * Hz
 net.run(0*second)
 j = 0
+np.random.seed(42)
+numbers_to_obs = np.arange(10).tolist()
 
 
-
+start_time = time.time()
 while j < (int(num_examples)):
-    
+    if test_mode and (testing['y'][j%60000][0] not in numbers_to_obs):
+        
+        j += 1
+        continue
+    elif not test_mode and (training['y'][j%10000][0] not in numbers_to_obs):
+        j += 1
+        continue
     if test_mode:
         rate = testing['x'][j%10000,:,:].reshape((n_input)) / 8. *  input_intensity
     else:
@@ -297,7 +305,7 @@ while j < (int(num_examples)):
         input_intensity = start_input_intensity
         j += 1
 
-
+print( 'simulation time:', time.time() - start_time)
 #------------------------------------------------------------------------------
 # save results
 #------------------------------------------------------------------------------

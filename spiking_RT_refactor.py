@@ -328,7 +328,7 @@ testing = get_labeled_data(MNIST_data_path + 'testing', bTrain = False)
 #------------------------------------------------------------------------------
 # set parameters and equations
 #------------------------------------------------------------------------------
-test_mode = False
+test_mode = True
 
 np.random.seed(0)
 data_path = ''
