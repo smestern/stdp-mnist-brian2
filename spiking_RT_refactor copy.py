@@ -98,15 +98,20 @@ def normalize_weights():
 
 def run_network(device, i):
     if i != 0: #we do not need to propagate the weights and theta on the first run
+        #get all possible inputs
+
         device.run(device.project_dir, run_args={input_groups_xe.rates: rate * Hz, 
-        neuron_groups_ae.theta: neuron_groups_ae.theta, connections_xeae.w: connections_xeae.w, neuron_groups_ae.v: neuron_groups_ae.v, 
-        neuron_groups_ai.v: neuron_groups_ai.v})
+        neuron_groups_ae.theta: neuron_groups_ae.theta, #neuron_groups_ai.theta: neuron_groups_ai.theta, #propagate the thresholds
+        connections_xeae.w: connections_xeae.w,
+        neuron_groups_ae.v: neuron_groups_ae.v, neuron_groups_ai.v: neuron_groups_ai.v, #propagate the membrane potentials
+        neuron_groups_ae.ge : neuron_groups_ae.ge, neuron_groups_ai.ge : neuron_groups_ai.ge, #propagate the synaptic conductances
+        })
     else:
         device.run(device.project_dir, run_args={input_groups_xe.rates: rate * Hz})
     return
 
 
-def plot_state(state_monitor, spike_monitor):
+def plot_state(state_monitor, spike_monitor, j):
     #plot I total and v
     spike_dict = spike_monitor.spike_trains()
     figure(figsize=(10, 4), num=0)
@@ -121,14 +126,16 @@ def plot_state(state_monitor, spike_monitor):
     scatter(spike_dict[0] / ms, np.ones(len(spike_dict[0])) * -50, color='r')
     xlabel('Time (ms)')
     ylabel('v (mV)')
-    pause(5)
+    title(f"Neuron {j}")
+    pause(0.01)
 
 
 
 #------------------------------------------------------------------------------
 # set parameters and equations
 #------------------------------------------------------------------------------
-test_mode = False
+DYN_CLAMP = False
+test_mode = True
 
 np.random.seed(0)
 data_path = ''
@@ -155,7 +162,7 @@ if test_mode:
         result_monitor = np.zeros((num_examples,n_e))
 
 
-single_example_time =   0.25 * b.second
+single_example_time =   0.35 * b.second
 resting_time = 0.25 * b.second
 runtime = num_examples * (single_example_time + resting_time)
 
@@ -225,9 +232,10 @@ neuron_groups_ai = b.NeuronGroup(n_i, neuron_eqs_i, threshold= v_thresh_i, refra
 #------------------------------------------------------------------------------
 # attach the dynamic clamp'd neuron to the network
 #------------------------------------------------------------------------------
-dyn_clamp_neuron, group = attach_neuron(neuron_groups_ae, 0, 'v', 'I_total', dt=defaultclock.dt)
-dyn_clamp_neuron.thresh_offset_RT = 20*b.mV
-dyn_clamp_neuron.v = -65. * b.mV
+if DYN_CLAMP:
+    dyn_clamp_neuron, group = attach_neuron(neuron_groups_ae, 0, 'v', 'I_total', dt=defaultclock.dt)
+    dyn_clamp_neuron.thresh_offset_RT = 20*b.mV
+    dyn_clamp_neuron.v = -65. * b.mV
 #------------------------------------------------------------------------------
 # create network population and recurrent connections
 #------------------------------------------------------------------------------
@@ -261,7 +269,7 @@ connections_aiae.w = weightMatrix[AiAe_idxs[:,0], AiAe_idxs[:,1]]
 
 print( 'create monitors for Ae')
 spike_counters_ae = b.SpikeMonitor(neuron_groups_ae)
-#state_monitors_ae = b.StateMonitor(neuron_groups_ae, ['v', 'ge', 'gi'], record=[0,1])
+state_monitors_ae = b.StateMonitor(neuron_groups_ae, ['v', 'ge', 'gi'], record=[0,1])
 #------------------------------------------------------------------------------
 # create input population and connections from input populations
 #------------------------------------------------------------------------------
@@ -309,7 +317,8 @@ connections_xeae.w = weightMatrix[XeAe_idxs[:,0], XeAe_idxs[:,1]]
 # for obj_list in [neuron_groups, input_groups, connections, spike_counters, state_monitors]:
 #     for key in obj_list:
 #         net.add(obj_list[key])
-device = init_neuron_device(device)
+if DYN_CLAMP:
+    device = init_neuron_device(device)
 zero_arr = np.zeros(n_input)
 #param_rate = initialize_parameter(input_groups_xe.rates, zero_arr )
 run(single_example_time, report='text')
@@ -329,7 +338,7 @@ start_time = time.time()
 #get the network run duration
 #network = list(device.networks)[0]
 
-numbers_to_obs = np.arange(2).tolist()
+numbers_to_obs = np.arange(4).tolist()
 
 i = 0 #number of times loop has run, mostly for checking the iter
 j = 0 #j is example number
@@ -349,10 +358,10 @@ while j < (int(num_examples)):
         rate = training['x'][j%60000,:,:].reshape((n_input)) / 8. *  input_intensity
     #set_the new rates, propagate the weights and theta
     run_network(device, i)
-    #plot_state(state_monitors_ae, spike_counters_ae)
+    plot_state(state_monitors_ae, spike_counters_ae, j)
     current_spike_count = np.asarray(spike_counters_ae.count[:]) - previous_spike_count
     previous_spike_count = np.copy(spike_counters_ae.count[:])
-    if np.sum(current_spike_count) < 5:
+    if np.sum(current_spike_count) < 1:
         input_intensity += 1
         rate = zero_arr
         run_network(device, i)
@@ -367,6 +376,8 @@ while j < (int(num_examples)):
         #set_parameter_value(param_rate, zero_arr )
         run_network(device, i)
         j += 1
+
+        
     i+=1
 
 print( 'total time:', (time.time() - start_time)/60)

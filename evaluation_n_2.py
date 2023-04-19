@@ -80,9 +80,9 @@ def get_new_assignments(result_monitor, input_numbers):
 
 MNIST_data_path = os.getcwd()+'/MNIST/'
 data_path = './activity/'
-training_ending = '300'
-testing_ending = '300'
-SUM_TOTAL_TESTS = 300
+training_ending = '600'
+testing_ending = '600'
+SUM_TOTAL_TESTS = 600
 start_time_training = 0
 end_time_training = int(training_ending)
 start_time_testing = 0
@@ -136,14 +136,20 @@ print( 'Sum response - accuracy --> mean: ', np.mean(sum_accurracy),  '--> stand
 from sklearn import svm
 from sklearn.metrics import balanced_accuracy_score, f1_score
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, permutation_test_score
 from sklearn.model_selection import cross_val_score
-x_train, x_test, y_train, y_test = train_test_split(testing_result_monitor[:, np.random.randint(0, 10, 10)], testing_input_numbers, test_size=0.3, stratify=testing_input_numbers, random_state=0)
+x_train, x_test, y_train, y_test = train_test_split(testing_result_monitor[:,:], testing_input_numbers, test_size=0.3, stratify=testing_input_numbers, random_state=0)
 clf = svm.SVC()
 clf.fit(x_train, y_train)
 y_pred = clf.predict(x_test)
+
+print(f"Cross Val Acc {np.nanmean(cross_val_score(clf, testing_result_monitor[:, :], testing_input_numbers, cv=5, scoring='balanced_accuracy'))}")
+
 print( 'SVM accuracy: ', balanced_accuracy_score(y_test, y_pred))
 print( 'SVM f1 score: ', f1_score(y_test, y_pred, average='macro'))
+#permutation test
+score, permutation_scores, pvalue = permutation_test_score(clf, x_test, y_test, scoring="f1_macro", cv=5, n_permutations=100, n_jobs=1)
+print( "Classification score %s (pvalue : %s)" % (score, pvalue))
 
 #save the classifier
 import pickle
@@ -162,3 +168,10 @@ plt.scatter(x_pca[:,0], x_pca[:,1], c=testing_input_numbers)
 
 
 show()
+
+#check the spiking preference of the first neuron
+
+for i in np.unique(testing_input_numbers):
+    plt.hist(testing_result_monitor[testing_input_numbers==i,0], bins=100, alpha=0.5, label=str(i))
+plt.legend()
+plt.show()
