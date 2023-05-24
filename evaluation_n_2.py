@@ -79,7 +79,7 @@ def get_new_assignments(result_monitor, input_numbers):
     return assignments
 
 MNIST_data_path = os.getcwd()+'/MNIST/'
-data_path = './activity/'
+data_path = './activity_blanked/'
 training_ending = '600'
 testing_ending = '600'
 SUM_TOTAL_TESTS = 600
@@ -88,7 +88,7 @@ end_time_training = int(training_ending)
 start_time_testing = 0
 end_time_testing = int(testing_ending)
 
-n_e = 10
+n_e = 40
 n_input = 784
 ending = ''
 
@@ -138,18 +138,22 @@ from sklearn.metrics import balanced_accuracy_score, f1_score
 
 from sklearn.model_selection import train_test_split, permutation_test_score
 from sklearn.model_selection import cross_val_score
-x_train, x_test, y_train, y_test = train_test_split(testing_result_monitor[:,:], testing_input_numbers, test_size=0.3, stratify=testing_input_numbers, random_state=0)
+x_train, x_test, y_train, y_test = train_test_split(testing_result_monitor[:,0].reshape(-1, 1), testing_input_numbers, test_size=0.3, stratify=testing_input_numbers, random_state=0)
 clf = svm.SVC()
 clf.fit(x_train, y_train)
 y_pred = clf.predict(x_test)
 
-print(f"Cross Val Acc {np.nanmean(cross_val_score(clf, testing_result_monitor[:, :], testing_input_numbers, cv=5, scoring='balanced_accuracy'))}")
+print(f"Cross Val Acc {np.nanmean(cross_val_score(clf, testing_result_monitor[:,0].reshape(-1, 1), testing_input_numbers, cv=5, scoring='balanced_accuracy'))}")
 
 print( 'SVM accuracy: ', balanced_accuracy_score(y_test, y_pred))
 print( 'SVM f1 score: ', f1_score(y_test, y_pred, average='macro'))
 #permutation test
 score, permutation_scores, pvalue = permutation_test_score(clf, x_test, y_test, scoring="f1_macro", cv=5, n_permutations=100, n_jobs=1)
 print( "Classification score %s (pvalue : %s)" % (score, pvalue))
+
+#save the cross val
+scores = cross_val_score(clf, testing_result_monitor[:,0].reshape(-1, 1), testing_input_numbers, cv=5, scoring='balanced_accuracy')
+np.savetxt(data_path+'cross_val_scores.csv', scores, delimiter=',')
 
 #save the classifier
 import pickle
@@ -164,14 +168,23 @@ pca = PCA(n_components=2)
 pca.fit(testing_result_monitor)
 x_pca = pca.transform(testing_result_monitor)
 plt.scatter(x_pca[:,0], x_pca[:,1], c=testing_input_numbers)
+plt.colorbar()
 
 
 
-show()
-
+plt.figure()
 #check the spiking preference of the first neuron
-
+means = {}
 for i in np.unique(testing_input_numbers):
-    plt.hist(testing_result_monitor[testing_input_numbers==i,0], bins=100, alpha=0.5, label=str(i))
+    plt.hist(testing_result_monitor[testing_input_numbers==i,:], bins=100, alpha=0.5, label=str(i))
+    means[i] = testing_result_monitor[testing_input_numbers==i,0]
 plt.legend()
+plt.figure()
+plt.bar(means.keys(), [np.mean(x) for x in means.values()])
+#save the dict
+import pandas as pd
+df = pd.DataFrame.from_dict(means, orient='index')
+df.to_csv(data_path+'spiking_preference.csv')
+
+
 plt.show()

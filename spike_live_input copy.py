@@ -11,8 +11,14 @@ import pickle as pickle
 import brian2 as b
 from struct import unpack
 from brian2 import *
-from ni_interface.ni_brian2 import *
 import time
+from matplotlib.widgets import LassoSelector
+from matplotlib.path import Path
+from ni_interface.ni_brian2 import *
+#load the classifier
+import pickle
+with open('svm_classifier.sav', 'rb') as f:
+    clf = pickle.load(f)
 
 defaultclock.dt = 0.1*ms
 
@@ -25,7 +31,6 @@ MNIST_data_path = '/home/smestern/brian2_SDTP/stdp-mnist-brian2/MNIST/'
 #------------------------------------------------------------------------------
 # functions
 #------------------------------------------------------------------------------
-
 def get_labeled_data(picklename, bTrain = True):
     """Read input-vector (image) and target class (label, 0-9) and return
        it as list of tuples.
@@ -73,69 +78,82 @@ def get_matrix_from_file(fileName, n_src, n_tgt):
     return value_arr
 
 
-def save_connections():
-    print( 'save connections')
-    conn = connections_xeae
-    connListSparse = list(zip(conn.i, conn.j, conn.w))
-    np.save(data_path + 'weights/XeAe', connListSparse)
 
-def save_theta():
-    print( 'save theta')
-    np.save(data_path + 'weights/theta_A', neuron_groups_ae.theta)
 
 def normalize_weights():
-    len_source = len(connections_xeae.source)
-    len_target = len(connections_xeae.target)
+    len_source = len(connections['XeAe'].source)
+    len_target = len(connections['XeAe'].target)
     connection = np.zeros((len_source, len_target))
-    connection[connections_xeae.i, connections_xeae.j] = connections_xeae.w
+    connection[connections['XeAe'].i, connections['XeAe'].j] = connections['XeAe'].w
     temp_conn = np.copy(connection)
     colSums = np.sum(temp_conn, axis = 0)
     colFactors = 78./colSums
     for j in range(n_e):
         temp_conn[:,j] *= colFactors[j]
-    connections_xeae.w = temp_conn[connections_xeae.i, connections_xeae.j]
+    connections['XeAe'].w = temp_conn[connections['XeAe'].i, connections['XeAe'].j]
 
+def clear(arg):
+    ax.clear()
+    #draw some zeros
+    ax.imshow(np.zeros((28,28)), cmap='gray', interpolation='nearest', vmin=0, vmax=1)
+    fig.canvas.draw()
 
-def run_network(device, i):
-    if i != 0: #we do not need to propagate the weights and theta on the first run
-        #get all possible inputs
+def onselect(verts):
+    global previous_spike_count 
+    bins = np.linspace(0, 28, 29)
+    #its an 28x28 grid so we need to find the square that was selected
+    verts = np.vstack(verts)
+    #find the intersection of the selected path and the grid
+    #this is a bit of a hack but it works
+    #bin the verts into a grid
+    digit, xedges, yedges = np.histogram2d(verts[:,0], verts[:,1], bins=bins)
+    digit = np.transpose(digit)
+    ax.clear()
+    ax.imshow(digit, cmap='gray', interpolation='nearest', vmin=0, vmax=1)
+    fig.canvas.draw()
 
-        device.run(device.project_dir, run_args={input_groups_xe.rates: rate * Hz, 
-        neuron_groups_ae.theta: neuron_groups_ae.theta, #neuron_groups_ai.theta: neuron_groups_ai.theta, #propagate the thresholds
-        connections_xeae.w: connections_xeae.w,
-        neuron_groups_ae.v: neuron_groups_ae.v, neuron_groups_ai.v: neuron_groups_ai.v, #propagate the membrane potentials
-        neuron_groups_ae.ge : neuron_groups_ae.ge, neuron_groups_ai.ge : neuron_groups_ai.ge, #propagate the synaptic conductances
-        })
-    else:
-        device.run(device.project_dir, run_args={input_groups_xe.rates: rate * Hz})
-    return
-
-
-def plot_state(state_monitor, spike_monitor, j):
-    #plot I total and v
-    spike_dict = spike_monitor.spike_trains()
-    figure(figsize=(10, 4), num=0)
-    clf()
-    subplot(211)
-    #plot(state_monitor.t / ms, state_monitor.I_total[0] / nA)
+    #feed the digit into the network
+    #reshape the digit into a vector
+    i = 1
+    output = np.zeros((10,))
     
-    xlabel('Time (ms)')
-    ylabel('I in (nA)')
-    subplot(212)
-    plot(state_monitor.t / ms, state_monitor.v[0] / mV)
-    scatter(spike_dict[0] / ms, np.ones(len(spike_dict[0])) * -50, color='r')
-    xlabel('Time (ms)')
-    ylabel('v (mV)')
-    title(f"Neuron {j}")
-    pause(0.01)
+    while True:
+        digit = digit.reshape(784)
+        #normalize the digit
+        digit = digit / np.max(digit)
+        #set the input layer to the digit
+        rates = digit * 256 * i * Hz
+        #run the network for 350ms
+        device.run(device.project_dir, run_args={input_groups_xe.rates: rates})
 
+        #clear the input layer
+        
+        #get the output
+        output = spike_counters_ae.count[:]
+        i += 1
+        device.run(device.project_dir, run_args={input_groups_xe.rates: np.full((784,), 0 * Hz)})
+        if np.sum(output) > 0:
+            break
+    #feed it into the classifier
+    out = clf.predict(output.reshape(1,-1))
+    print("===== PREDICTION =====")
+    print("Predicted: ", out)
+    #print(output)
+
+    
+
+#------------------------------------------------------------------------------
+# load MNIST
+#------------------------------------------------------------------------------
+training = get_labeled_data(MNIST_data_path + 'training')
+testing = get_labeled_data(MNIST_data_path + 'testing', bTrain = False)
 
 
 #------------------------------------------------------------------------------
 # set parameters and equations
 #------------------------------------------------------------------------------
-DYN_CLAMP = False
-test_mode = True
+DYN_CLAMP = True
+test_mode = False
 
 np.random.seed(0)
 data_path = ''
@@ -148,7 +166,7 @@ else:
 num_examples =  600 * 1 # 추가
 ending    = '' # 추가
 n_output  = 10 # 추가
-n_e =10
+n_e =40
 n_i = n_e
 n_input = 784
 
@@ -269,7 +287,7 @@ connections_aiae.w = weightMatrix[AiAe_idxs[:,0], AiAe_idxs[:,1]]
 
 print( 'create monitors for Ae')
 spike_counters_ae = b.SpikeMonitor(neuron_groups_ae)
-state_monitors_ae = b.StateMonitor(neuron_groups_ae, ['v', 'ge', 'gi'], record=[0,1])
+state_monitors_ae = b.StateMonitor(neuron_groups_ae, ['v', 'ge', 'theta', 'I_total'], record=[0,1])
 #------------------------------------------------------------------------------
 # create input population and connections from input populations
 #------------------------------------------------------------------------------
@@ -285,7 +303,7 @@ model = 'w : 1'
 pre = 'ge_post += w'
 post = ''
 
-if not test_mode:
+if False: #not test_mode:
     print( 'create STDP for connection XeAe')
     model += eqs_stdp_ee
     pre += '; ' + eqs_stdp_pre_ee
@@ -335,60 +353,41 @@ device.build(compile=True, run=False, debug=False)
 training = get_labeled_data(MNIST_data_path + 'training')
 testing = get_labeled_data(MNIST_data_path + 'testing', bTrain = False)
 start_time = time.time()
-#get the network run duration
-#network = list(device.networks)[0]
 
-numbers_to_obs = np.arange(4).tolist()
+plt.ion()
+start_time = time.time()
 
-i = 0 #number of times loop has run, mostly for checking the iter
-j = 0 #j is example number
-while j < (int(num_examples)):
-    if test_mode and (testing['y'][j%60000][0] not in numbers_to_obs):
-        
-        j += 1
-        continue
-    elif not test_mode and (training['y'][j%10000][0] not in numbers_to_obs):
-        j += 1
-        continue
-    if test_mode:
-        rate = testing['x'][j%10000,:,:].reshape((n_input)) / 8. *  input_intensity
-    else:
-        if i > 0:
-            normalize_weights()
-        rate = training['x'][j%60000,:,:].reshape((n_input)) / 8. *  input_intensity
-    #set_the new rates, propagate the weights and theta
-    run_network(device, i)
-    plot_state(state_monitors_ae, spike_counters_ae, j)
-    current_spike_count = np.asarray(spike_counters_ae.count[:]) - previous_spike_count
-    previous_spike_count = np.copy(spike_counters_ae.count[:])
-    if np.sum(current_spike_count) < 1:
-        input_intensity += 1
-        rate = zero_arr
-        run_network(device, i)
-    else:
-        if test_mode:
-            result_monitor[j,:] = current_spike_count
-            input_numbers[j] = testing['y'][j%10000][0]
-        if j % 100 == 0 and j > 0:
-            print( 'runs done:', j, 'of', int(num_examples))
-        rate = zero_arr
-        input_intensity = start_input_intensity
-        #set_parameter_value(param_rate, zero_arr )
-        run_network(device, i)
-        j += 1
+fig, ax = plt.subplots(1, 1)
+#plot an 8,8 image of zeros
+imshowshow = ax.imshow(np.zeros((28,28)), cmap='gray')
 
-        
-    i+=1
+#add a lasso selector
+# line defines the color, width and opacity
+# of the line to be drawn
+line = {'color': 'white', 
+        'linewidth': 8, 'alpha': 1}
+lasso = LassoSelector(ax, onselect, lineprops=line)
+#add a button to clear the selection
+from matplotlib.widgets import Button
+button = Button(plt.axes([0.7, 0.05, 0.1, 0.075]), 'Clear')
+button.on_clicked(clear)
 
-print( 'total time:', (time.time() - start_time)/60)
+# try:
+while True:
+    
+    fig.waitforbuttonpress()
+#         #get the next input
+#         input_numbers[j] = np.random.randint(0, 4)
+#         input_numbers[j] = numbers_to_obs[j]
+#         print( 'input number:', input_numbers[j])
+#         #input_groups['Xe'].rates = input_images[input_numbers[j]] * Hz
+#         #net.run(0.35*second)
+#         input_groups['Xe'].rates = 0 * Hz
+#         #net.run(0.15*second)    
 
-#------------------------------------------------------------------------------
-# save results
-#------------------------------------------------------------------------------
-print( 'save results')
-if not test_mode:
-    save_theta()
-    save_connections()
-else:
-    np.save(data_path + './activity/resultPopVecs' + str(num_examples), result_monitor)
-    np.save(data_path + './activity/inputNumbers' + str(num_examples), input_numbers)
+#         #get the spikes
+#         #spike_id = spike_counters['Ae'].count()
+#         time.sleep(1)
+# except KeyboardInterrupt:
+#     pass
+print( 'simulation time:', time.time() - start_time)

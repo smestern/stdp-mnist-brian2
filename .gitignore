@@ -4,3 +4,4 @@
 /sequential/**
 /tmp/**
 /output/*
+*.csv
