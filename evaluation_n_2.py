@@ -13,7 +13,7 @@ import scipy
 import pickle as pickle
 from struct import unpack
 from brian2 import *
-
+import pandas as pd
 CLASSES_SEEN = 2
 #------------------------------------------------------------------------------
 # functions
@@ -78,8 +78,24 @@ def get_new_assignments(result_monitor, input_numbers):
                 assignments[i] = j
     return assignments
 
+def first_spike_latency(spike_times, no_spike=-1):
+    latency = np.zeros(len(spike_times))
+    for i, times in enumerate(spike_times):
+        if len(times) > 0:
+            latency[i] = times[0]/second
+        else:
+            latency[i] = no_spike
+    return latency
+
+def binarze_spikes(spike_times, stim_length=0.35, bin_size=0.001):
+    bins = np.arange(0, stim_length, 0.001)
+    binned_spikes = []
+    for times in spike_times:
+        binned_spikes.append(np.histogram(times/second, bins)[0])
+    return np.vstack((binned_spikes))
+
 MNIST_data_path = os.getcwd()+'/MNIST/'
-data_path = './activity_blanked/'
+data_path = './activity/'
 training_ending = '600'
 testing_ending = '600'
 SUM_TOTAL_TESTS = 600
@@ -88,7 +104,7 @@ end_time_training = int(training_ending)
 start_time_testing = 0
 end_time_testing = int(testing_ending)
 
-n_e = 40
+n_e = 10
 n_input = 784
 ending = ''
 
@@ -102,6 +118,11 @@ training_result_monitor = np.load(data_path + 'resultPopVecs' + training_ending 
 training_input_numbers = np.load(data_path + 'inputNumbers' + training_ending + '.npy')
 testing_result_monitor = np.load(data_path + 'resultPopVecs' + testing_ending + '.npy')
 testing_input_numbers = np.load(data_path + 'inputNumbers' + testing_ending + '.npy')
+try: 
+    spike_times = np.load(data_path + 'spikeTimes' + training_ending + '.npy', allow_pickle=True)
+except:
+    print( 'spike file not loaded')
+    spike_times = None
 print( training_result_monitor.shape)
 
 print( 'get assignments')
@@ -132,6 +153,18 @@ while (counter < num_tests):
 print( 'Sum response - accuracy --> mean: ', np.mean(sum_accurracy),  '--> standard deviation: ', np.std(sum_accurracy))
 
 
+#filter out rows that are not used
+idx_ = np.nonzero(np.sum(testing_result_monitor, axis=1))[0]
+testing_result_monitor = testing_result_monitor[idx_,:]
+testing_input_numbers = testing_input_numbers[idx_]
+
+#if the in vitro neuron drifted etc, we want to exclude it from the analysis
+idx_include = np.arange(0, 252) #this depends on the in vitro neuron, is subjective
+testing_result_monitor = testing_result_monitor[idx_include]
+testing_input_numbers = testing_input_numbers[idx_include]
+
+
+
 #train a classifier on the training data
 from sklearn import svm
 from sklearn.metrics import balanced_accuracy_score, f1_score
@@ -148,13 +181,32 @@ print(f"Cross Val Acc {np.nanmean(cross_val_score(clf, testing_result_monitor[:,
 print( 'SVM accuracy: ', balanced_accuracy_score(y_test, y_pred))
 print( 'SVM f1 score: ', f1_score(y_test, y_pred, average='macro'))
 #permutation test
-score, permutation_scores, pvalue = permutation_test_score(clf, x_test, y_test, scoring="f1_macro", cv=5, n_permutations=100, n_jobs=1)
+score, permutation_scores, pvalue = permutation_test_score(clf,testing_result_monitor[:,0].reshape(-1, 1), testing_input_numbers, scoring='balanced_accuracy', cv=5, n_permutations=100, n_jobs=1)
 print( "Classification score %s (pvalue : %s)" % (score, pvalue))
 
 #save the cross val
 scores = cross_val_score(clf, testing_result_monitor[:,0].reshape(-1, 1), testing_input_numbers, cv=5, scoring='balanced_accuracy')
-np.savetxt(data_path+'cross_val_scores.csv', scores, delimiter=',')
+np.savetxt(data_path+'_invitro_cross_val_scores.csv', scores, delimiter=',')
 
+#test the accuracy sequentially
+y_pred = clf.predict(testing_result_monitor[:,0].reshape(-1, 1))
+y_pred = np.where(y_pred == testing_input_numbers, 1, 0)
+#CREATE A MOVING AVERAGE
+y_pred_df = pd.DataFrame(y_pred, columns=['pred'])
+y_pred_df['pred'] = y_pred_df['pred'].rolling(window=10).mean()
+#save it
+y_pred_df.to_csv(data_path+'_invitro_accuracy_rolling.csv', index=False)
+plt.plot(y_pred_df['pred'])
+#plt.show()
+
+#also make a confusion matrix
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+plt.figure()
+y_pred = clf.predict(testing_result_monitor[:,0].reshape(-1, 1))
+Comat= confusion_matrix(testing_input_numbers, y_pred)
+dis = ConfusionMatrixDisplay(Comat, display_labels=np.unique(testing_input_numbers))
+dis.plot()
+plt.figure()
 #save the classifier
 import pickle
 filename = 'svm_classifier.sav'
@@ -182,9 +234,58 @@ plt.legend()
 plt.figure()
 plt.bar(means.keys(), [np.mean(x) for x in means.values()])
 #save the dict
-import pandas as pd
+
 df = pd.DataFrame.from_dict(means, orient='index')
 df.to_csv(data_path+'spiking_preference.csv')
+if spike_times is not None:
+    print("===Testing based on first spike latency===")
+    from sklearn.preprocessing import MinMaxScaler, StandardScaler
+    fs_latency = first_spike_latency(spike_times)[idx_include]
+    fs_latency = fs_latency.reshape(-1, 1)
+    scaler = StandardScaler()
+    fs_latency = scaler.fit_transform(fs_latency)
+    x_train, x_test, y_train, y_test = train_test_split(fs_latency, testing_input_numbers, test_size=0.3, stratify=testing_input_numbers, random_state=0)
+    clf = svm.SVC()
+    clf.fit(x_train, y_train)
+    y_pred = clf.predict(x_test)
 
+    print(f"Cross Val Acc {np.nanmean(cross_val_score(clf, fs_latency, testing_input_numbers, cv=5, scoring='balanced_accuracy'))}")
 
+    print( 'SVM accuracy: ', balanced_accuracy_score(y_test, y_pred))
+    print( 'SVM f1 score: ', f1_score(y_test, y_pred, average='macro'))
+    #permutation test
+    score, permutation_scores, pvalue = permutation_test_score(clf, x_test, y_test, scoring="f1_macro", cv=5, n_permutations=100, n_jobs=1)
+    print( "Classification score %s (pvalue : %s)" % (score, pvalue))
+
+    
+
+    print("===Testing with binarized spike times===")
+    bin_spikes = binarze_spikes(spike_times, 0.35, 0.01)[idx_include]
+    bin_spikes = StandardScaler().fit_transform(bin_spikes)
+    x_train, x_test, y_train, y_test = train_test_split(bin_spikes, testing_input_numbers, test_size=0.3, stratify=testing_input_numbers, random_state=0)
+    clf = svm.SVC()
+    clf.fit(x_train, y_train)
+    y_pred = clf.predict(x_test)
+
+    print(f"Cross Val Acc {np.nanmean(cross_val_score(clf, bin_spikes, testing_input_numbers, cv=5, scoring='balanced_accuracy'))}")
+
+    print( 'SVM accuracy: ', balanced_accuracy_score(y_test, y_pred))
+    print( 'SVM f1 score: ', f1_score(y_test, y_pred, average='macro'))
+    #permutation test
+    score, permutation_scores, pvalue = permutation_test_score(clf, x_test, y_test, scoring="balanced_accuracy", cv=5, n_permutations=100, n_jobs=1)
+    print( "Classification score %s (pvalue : %s)" % (score, pvalue))
+
+print("===Testing with all neurons===")
+#test the cross val for each neuron
+neuron_cross_val = {}
+for neuron in np.arange(testing_result_monitor.shape[1]):
+    clf = svm.SVC()
+    scores = cross_val_score(clf, testing_result_monitor[idx_include,neuron].reshape(-1, 1), testing_input_numbers[idx_include], cv=5, scoring='balanced_accuracy')
+    neuron_cross_val[neuron] = scores
+    print(f"Cross Val Acc {np.nanmean(scores)}")
+    #print(f"Cross Val Acc {np.nanstd(scores)}")
+#save the dict
+import pandas as pd
+df = pd.DataFrame.from_dict(neuron_cross_val, orient='index')
+df.to_csv(data_path+'neuron_cross_val.csv')
 plt.show()

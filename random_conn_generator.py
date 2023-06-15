@@ -43,7 +43,7 @@ def create_weights():
     weight = {}
     weight['ee_input'] = 0.3
     weight['ei_input'] = 0.2
-    weight['ee'] = 0.1
+    weight['ee'] = 10.0
     weight['ei'] = 10.4
     weight['ie'] = 17.0
     weight['ii'] = 0.4
@@ -55,12 +55,21 @@ def create_weights():
     pConn['ie'] = 0.9
     pConn['ii'] = 0.1
 
+    #MUTE_NEURONS
+    muteNeurons = np.arange(10).tolist()
+
+    #E->E?
+    e_to_e = True
+
 
     print( 'create random connection matrices')
     connNameList = ['XeAe']
     for name in connNameList:
         weightMatrix = np.random.random((nInput, nE)) + 0.01
         weightMatrix *= weight['ee_input']
+        if len(muteNeurons) > 0:
+            for i in muteNeurons:
+                weightMatrix[:,i] = 1e-4
         if pConn['ee_input'] < 1.0:
             weightMatrix, weightList = sparsenMatrix(weightMatrix, pConn['ee_input'])
         else:
@@ -102,13 +111,35 @@ def create_weights():
             weightMatrix *= weight['ie']
             for i in range(nI):
                 weightMatrix[i,i] = 0
+
+            if len(muteNeurons) > 0:
+                #for the muted neurons, dial the inhibition down by a factor of 10
+                for i in muteNeurons:
+                    weightMatrix[:, i] *= 0.01
             weightList = [(i, j, weightMatrix[i,j]) for i in range(nI) for j in range(nE)]
         else:
             weightMatrix = np.random.random((nI, nE))
             weightMatrix *= weight['ie']
+            
             weightMatrix, weightList = sparsenMatrix(weightMatrix, pConn['ie'])
         print( 'save connection matrix', name)
         np.save(dataPath+name, weightList)
+
+    if e_to_e:
+        connNameList = ['AeAe']
+        for name in connNameList:
+            if nE == nE:
+                weightMatrix = np.random.random((nE, nE))
+                weightMatrix *= weight['ee']
+                for i in range(nE):
+                    weightMatrix[i,i] = 0
+                weightList = [(i, j, weightMatrix[i,j]) for i in range(nE) for j in range(nE)]
+            else:
+                weightMatrix = np.random.random((nI, nE))
+                weightMatrix *= weight['ee']
+                weightMatrix, weightList = sparsenMatrix(weightMatrix, pConn['ee'])
+            print( 'save connection matrix', name)
+            np.save(dataPath+name, weightList)
 
 
 if __name__ == "__main__":

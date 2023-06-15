@@ -12,13 +12,13 @@ import brian2 as b
 from struct import unpack
 from brian2 import *
 import time
-
+import matplotlib.pyplot as plt
 
 
 prefs.codegen.target = 'cython'
 
 # specify the location of the MNIST data
-MNIST_data_path = 'C:/Users/SMest/source/repos/stdp-mnist-brian2/MNIST/'
+MNIST_data_path = './MNIST/'
 
 #------------------------------------------------------------------------------
 # functions
@@ -75,22 +75,37 @@ def save_connections():
     conn = connections['XeAe']
     connListSparse = list(zip(conn.i, conn.j, conn.w))
     np.save(data_path + 'weights/XeAe', connListSparse)
+    conn = connections['AeAe']
+    connListSparse = list(zip(conn.i, conn.j, conn.w))
+    np.save(data_path + 'weights/AeAe', connListSparse)
 
 def save_theta():
     print( 'save theta')
     np.save(data_path + 'weights/theta_A', neuron_groups['Ae'].theta)
 
-def normalize_weights():
-    len_source = len(connections['XeAe'].source)
-    len_target = len(connections['XeAe'].target)
+def normalize_weights(connection_name='XeAe', mute_neurons=[]):
+    len_source = len(connections[connection_name].source)
+    len_target = len(connections[connection_name].target)
     connection = np.zeros((len_source, len_target))
-    connection[connections['XeAe'].i, connections['XeAe'].j] = connections['XeAe'].w
+    connection[connections[connection_name].i, connections[connection_name].j] = connections[connection_name].w
     temp_conn = np.copy(connection)
     colSums = np.sum(temp_conn, axis = 0)
-    colFactors = 78./colSums
+    colFactors = (len_source*(0.1))/colSums
     for j in range(n_e):
         temp_conn[:,j] *= colFactors[j]
-    connections['XeAe'].w = temp_conn[connections['XeAe'].i, connections['XeAe'].j]
+    for nrn in mute_neurons:
+        temp_conn[:,nrn] = 0.0
+    connections[connection_name].w = temp_conn[connections[connection_name].i, connections[connection_name].j]
+
+def plot_net(state_monitor):
+    plt.figure(1)
+    plt.clf()
+    fig, ax = plt.subplots(3,1, num=1)
+    ax[0].plot(state_monitor.t/b.second, state_monitor.v[0]/b.mV)
+    plt.xlabel('Time (s)')
+    plt.ylabel('v (mV)')
+    ax[1].plot(state_monitor.t/b.second, state_monitor.ge[0], alpha=0.7,)
+    plt.pause(0.5)
 
 
 #------------------------------------------------------------------------------
@@ -103,8 +118,9 @@ testing = get_labeled_data(MNIST_data_path + 'testing', bTrain = False)
 #------------------------------------------------------------------------------
 # set parameters and equations
 #------------------------------------------------------------------------------
-test_mode = True
-
+test_mode = False
+EE_SDTP = True
+XE_SDTP = True
 np.random.seed(0)
 data_path = ''
 '''
@@ -113,12 +129,12 @@ if test_mode:
 else:
     num_examples = 60000 * 3
 '''
-num_examples =  300 * 1 # 추가
-ending    = '' # 추가
-n_output  =2 # 추가
+num_examples =  600 * 1 
+ending    = '' 
+
 
 n_input = 784
-n_e = 10
+n_e = 40
 n_i = n_e
 
 single_example_time =   0.35 * b.second
@@ -135,7 +151,7 @@ v_thresh_i = 'v>-40.*mV'
 refrac_e = 5. * b.ms
 refrac_i = 2. * b.ms
 
-input_intensity = 2.
+input_intensity = 3.
 start_input_intensity = input_intensity
 
 tc_pre_ee = 20*b.ms
@@ -189,6 +205,7 @@ neuron_groups = {}
 input_groups = {}
 connections = {}
 spike_counters = {}
+state_monitors = {}
 if test_mode:
     result_monitor = np.zeros((num_examples,n_e))
 
@@ -219,8 +236,35 @@ connections['AiAe'] = b.Synapses(neuron_groups['Ai'], neuron_groups['Ae'], model
 connections['AiAe'].connect(True) # all-to-all connection
 connections['AiAe'].w = weightMatrix[connections['AiAe'].i, connections['AiAe'].j]
 
+
+if test_mode:
+    weightMatrix = get_matrix_from_file(data_path + 'weights/AeAe.npy', n_e, n_e)
+else:
+    weightMatrix = get_matrix_from_file(data_path + 'random/AeAe.npy', n_e, n_e)
+model = 'w : 1'
+pre = 'ge_post += w'
+post = ''
+
+if not test_mode and EE_SDTP:
+    print( 'create STDP for connection AeAe')
+    model += eqs_stdp_ee
+    pre += '; ' + eqs_stdp_pre_ee
+    post = eqs_stdp_post_ee
+
+connections['AeAe'] = b.Synapses(neuron_groups['Ae'], neuron_groups['Ae'],
+                                            model=model, on_pre=pre, on_post=post)
+minDelay = 0*b.ms
+maxDelay = 10*b.ms
+deltaDelay = maxDelay - minDelay
+
+connections['AeAe'].connect(True) # all-to-all connection
+connections['AeAe'].delay = 'minDelay + rand() * deltaDelay'
+connections['AeAe'].w = weightMatrix[connections['AeAe'].i, connections['AeAe'].j]
+
+
 print( 'create monitors for Ae')
 spike_counters['Ae'] = b.SpikeMonitor(neuron_groups['Ae'])
+state_monitors['Ae'] = b.StateMonitor(neuron_groups['Ae'], ['v', 'ge', 'theta'], record=range(5))
 
 #------------------------------------------------------------------------------
 # create input population and connections from input populations
@@ -236,7 +280,7 @@ model = 'w : 1'
 pre = 'ge_post += w'
 post = ''
 
-if not test_mode:
+if not test_mode and XE_SDTP:
     print( 'create STDP for connection XeAe')
     model += eqs_stdp_ee
     pre += '; ' + eqs_stdp_pre_ee
@@ -258,11 +302,11 @@ connections['XeAe'].w = weightMatrix[connections['XeAe'].i, connections['XeAe'].
 #------------------------------------------------------------------------------
 
 net = Network()
-for obj_list in [neuron_groups, input_groups, connections, spike_counters]:
+for obj_list in [neuron_groups, input_groups, connections, spike_counters, state_monitors]:
     for key in obj_list:
         net.add(obj_list[key])
 
-previous_spike_count = np.zeros(n_e)
+previous_spike_count = np.zeros(10)
 input_numbers = [0] * num_examples
 input_groups['Xe'].rates = 0 * Hz
 net.run(0*second)
@@ -274,23 +318,33 @@ numbers_to_obs = np.arange(4).tolist()
 start_time = time.time()
 while j < (int(num_examples)):
     if test_mode and (testing['y'][j%60000][0] not in numbers_to_obs):
-        
         j += 1
         continue
     elif not test_mode and (training['y'][j%10000][0] not in numbers_to_obs):
         j += 1
         continue
+
+    if input_intensity > 400:
+        j+=1
+        input_intensity = start_input_intensity
+        print(f"skipped {j}th example")
+        continue
+
     if test_mode:
         rate = testing['x'][j%10000,:,:].reshape((n_input)) / 8. *  input_intensity
     else:
-        normalize_weights()
+        if XE_SDTP:
+            normalize_weights()
+        elif EE_SDTP:
+            normalize_weights('AeAe')
         rate = training['x'][j%60000,:,:].reshape((n_input)) / 8. *  input_intensity
     input_groups['Xe'].rates = rate * Hz
-    net.run(single_example_time, report='text')
-
-    current_spike_count = np.asarray(spike_counters['Ae'].count[:]) - previous_spike_count
-    previous_spike_count = np.copy(spike_counters['Ae'].count[:])
-    if np.sum(current_spike_count) < 5:
+    net.run(single_example_time)
+    plot_net(state_monitors['Ae'])
+    current_spike_count = np.asarray(spike_counters['Ae'].count[:10]) - previous_spike_count
+    previous_spike_count = np.copy(spike_counters['Ae'].count[:10])
+    print(f"Running sample {j} with target {training['y'][j%10000][0]} and and found spikes {current_spike_count}", end="\r")
+    if np.sum(current_spike_count) < 2:
         input_intensity += 1
         input_groups['Xe'].rates = 0 * Hz
         net.run(resting_time)
@@ -304,6 +358,11 @@ while j < (int(num_examples)):
         net.run(resting_time)
         input_intensity = start_input_intensity
         j += 1
+
+
+    
+
+    
 
 print( 'simulation time:', time.time() - start_time)
 #------------------------------------------------------------------------------

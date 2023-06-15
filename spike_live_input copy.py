@@ -26,7 +26,7 @@ set_device('cpp_standalone', build_on_run=False)
 #device = get_device()
 
 # specify the location of the MNIST data
-MNIST_data_path = '/home/smestern/brian2_SDTP/stdp-mnist-brian2/MNIST/'
+MNIST_data_path = './MNIST/'
 
 #------------------------------------------------------------------------------
 # functions
@@ -129,7 +129,7 @@ def onselect(verts):
         #clear the input layer
         
         #get the output
-        output = spike_counters_ae.count[:]
+        output = spike_counters_ae.count[:5]
         i += 1
         device.run(device.project_dir, run_args={input_groups_xe.rates: np.full((784,), 0 * Hz)})
         if np.sum(output) > 0:
