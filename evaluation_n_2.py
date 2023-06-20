@@ -95,7 +95,7 @@ def binarze_spikes(spike_times, stim_length=0.35, bin_size=0.001):
     return np.vstack((binned_spikes))
 
 MNIST_data_path = os.getcwd()+'/MNIST/'
-data_path = './activity/'
+data_path = './activity_no_SDTP/'
 training_ending = '600'
 testing_ending = '600'
 SUM_TOTAL_TESTS = 600
@@ -159,7 +159,7 @@ testing_result_monitor = testing_result_monitor[idx_,:]
 testing_input_numbers = testing_input_numbers[idx_]
 
 #if the in vitro neuron drifted etc, we want to exclude it from the analysis
-idx_include = np.arange(0, 252) #this depends on the in vitro neuron, is subjective
+idx_include = np.arange(0, 100) #this depends on the in vitro neuron, is subjective
 testing_result_monitor = testing_result_monitor[idx_include]
 testing_input_numbers = testing_input_numbers[idx_include]
 
@@ -204,6 +204,8 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 plt.figure()
 y_pred = clf.predict(testing_result_monitor[:,0].reshape(-1, 1))
 Comat= confusion_matrix(testing_input_numbers, y_pred)
+#save the confusion matrix
+np.savetxt(data_path+'_invitro_confusion_matrix.csv', Comat, delimiter=',')
 dis = ConfusionMatrixDisplay(Comat, display_labels=np.unique(testing_input_numbers))
 dis.plot()
 plt.figure()

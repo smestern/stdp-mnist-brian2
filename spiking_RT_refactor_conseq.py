@@ -13,7 +13,7 @@ from struct import unpack
 from brian2 import *
 from ni_interface.ni_brian2 import *
 import time
-
+import shutil
 defaultclock.dt = 0.1*ms
 
 set_device('cpp_standalone', build_on_run=False)
@@ -78,6 +78,10 @@ def save_connections():
     conn = connections_xeae
     connListSparse = list(zip(conn.i, conn.j, conn.w))
     np.save(data_path + 'weights/XeAe', connListSparse)
+    if e_to_e:
+        conn = connections_aeae
+        connListSparse = list(zip(conn.i, conn.j, conn.w))
+        np.save(data_path + 'weights/AeAe', connListSparse)
 
 def save_theta():
     print( 'save theta')
@@ -161,8 +165,8 @@ def plot_state(state_monitor, spike_monitor, j):
     figure(figsize=(10, 5), num=0)
     clf()
     subplot(311)
-    title(f"Neuron {j}")
-    scatter(spike_monitor.i, spike_monitor.t / ms, color='k', marker='.')
+    title(f"iter {j}")
+    scatter( spike_monitor.t / ms,spike_monitor.i, color='k', marker='.')
 
     subplot(312)
     plot(state_monitor.t / ms, state_monitor.I_total[0] / pA)
@@ -184,25 +188,26 @@ def plot_state(state_monitor, spike_monitor, j):
 #------------------------------------------------------------------------------
 # set parameters and equations
 #------------------------------------------------------------------------------
-DYN_CLAMP = False
-BLANKED = False
+#GLOBAL SETTINGS
 test_mode = False
+
+
+DYN_CLAMP = True
+BLANKED = False
 SDTP =False
 e_to_e = True
 EE_SDTP =True
-clear_output = True
+CLEAR_OUTPUT = True
+
+
+
 np.random.seed(0)
 data_path = ''
-'''
-if test_mode:
-    num_examples = 10000
-else:
-    num_examples = 60000 * 3
-'''
-num_examples =  600 * 1 # 추가
+
+num_examples =  300 * 1 # 추가
 ending    = '' # 추가
 n_output  = 10 # 추가
-n_e =40
+n_e =400
 n_i = n_e
 n_input = 784
 
@@ -213,7 +218,7 @@ previous_spike_count = np.zeros(n_e)
 input_numbers = [0] * num_examples
 
 if test_mode:
-        result_monitor = np.zeros((num_examples,10))
+    result_monitor = np.zeros((num_examples,10))
 
 
 single_example_time =   0.35 * b.second
@@ -245,23 +250,24 @@ else:
     theta_plus_e = 0.05 * b.mV
     scr_e = 'v = v_reset_e; theta += theta_plus_e; timer = 0*ms'
 offset = 20.0*b.mV
-v_thresh_e = '(v>(theta - offset + -52.*mV + thresh_offset_RT)) and (timer>refrac_e)'
+v_thresh_e = '(v>((theta - offset + -52.*mV)*(1-dyn_clamp) + thresh_offset_RT)) and (timer>refrac_e)'
 
 
 neuron_eqs_e = '''
         dv/dt = ((v_rest_e - v) + (I_synE+I_synI) / nS) / (100*ms)  : volt (unless refractory)
         I_synE = ge * nS *         -v                           : amp
         I_synI = gi * nS * (-100.*mV-v)                          : amp
-        I_total = clip(I_synE + I_synI, -250*pA, 250*pA)                                : amp
+        I_total = clip(I_synE + I_synI, -550*pA, 550*pA)                                : amp
         dge/dt = -ge/(1.0*ms)                                   : 1
         dgi/dt = -gi/(2.0*ms)                                  : 1
         thresh_offset_RT : volt
+        dyn_clamp : 1
         '''
 if test_mode:
     neuron_eqs_e += '\n  theta      :volt'
 else:
     neuron_eqs_e += '\n  dtheta/dt = -theta / (tc_theta)  : volt'
-neuron_eqs_e += '\n  dtimer/dt = 0.1  : second'
+neuron_eqs_e += '\n  dtimer/dt = (0.1 * (1-dyn_clamp)) + (1 * dyn_clamp) : second'
 
 neuron_eqs_i = '''
         dv/dt = ((v_rest_i - v) + (I_synE+I_synI) / nS) / (10*ms)  : volt (unless refractory)
@@ -282,14 +288,17 @@ eqs_stdp_post_ee = 'post2before = post2; w = clip(w + nu_ee_post * pre * post2be
 
 
 neuron_groups_ae = b.NeuronGroup(n_e, neuron_eqs_e, threshold= v_thresh_e, refractory= refrac_e, reset= scr_e, method='euler')
+neuron_groups_ae.dyn_clamp = 0
 neuron_groups_ai = b.NeuronGroup(n_i, neuron_eqs_i, threshold= v_thresh_i, refractory= refrac_i, reset= v_reset_i, method='euler')
 #------------------------------------------------------------------------------
 # attach the dynamic clamp'd neuron to the network
 #------------------------------------------------------------------------------
 if DYN_CLAMP:
     dyn_clamp_neuron, group = attach_neuron(neuron_groups_ae, 0, 'v', 'I_total', dt=defaultclock.dt)
-    
-    dyn_clamp_neuron.thresh_offset_RT = 5*b.mV
+    dyn_clamp_neuron.dyn_clamp = 1
+    dyn_clamp_neuron.thresh_offset_RT = -30*b.mV
+    dyn_clamp_neuron.timer = 0*b.ms
+    #dyn_clamp_neuron.refrac_e = 0*b.ms
     dyn_clamp_neuron.v = -65. * b.mV
 #------------------------------------------------------------------------------
 # create network population and recurrent connections
@@ -417,18 +426,23 @@ device.build(compile=True, run=False, debug=False)
 #------------------------------------------------------------------------------
 training = get_labeled_data(MNIST_data_path + 'training')
 testing = get_labeled_data(MNIST_data_path + 'testing', bTrain = False)
+
+
+
+#------------------------------------------------------------------------------
+# Run the network
+#------------------------------------------------------------------------------
 start_time = time.time()
-#get the network run duration
-#network = list(device.networks)[0]
+
 spike_times = []
 
 numbers_to_obs = np.arange(4).tolist()
 
 i = 0 #number of times loop has run, mostly for checking the iter
 j = 0 #j is example number
-while j < (int(num_examples)):
+k = 0 #k is number of training examples shown
+while k < (int(num_examples)):
     if test_mode and (testing['y'][j%60000][0] not in numbers_to_obs):
-        
         j += 1
         continue
     elif not test_mode and (training['y'][j%10000][0] not in numbers_to_obs):
@@ -439,13 +453,13 @@ while j < (int(num_examples)):
     else:
         if i > 0:
             if SDTP:
-                normalize_weights_xe(muteNeurons=np.arange(10))
+                normalize_weights_xe()
             if e_to_e and EE_SDTP:
-                normalize_weights_ae(muteNeurons=np.arange(10))
+                normalize_weights_ae()
         rate = training['x'][j%60000,:,:].reshape((n_input)) / 8. *  input_intensity
     #set_the new rates, propagate the weights and theta
     run_network(device, i)
-    plot_state(state_monitors_ae, spike_counters_ae, j)
+    plot_state(state_monitors_ae, spike_counters_ae, k)
     current_spike_count = np.asarray(spike_counters_ae.count[:10]) #- previous_spike_count
     previous_spike_count = np.copy(spike_counters_ae.count[:10])
     if np.sum(current_spike_count) <1:
@@ -454,19 +468,22 @@ while j < (int(num_examples)):
         run_network(device, i)
     else:
         if test_mode:
-            result_monitor[j,:] = current_spike_count
-            input_numbers[j] = testing['y'][j%10000][0]
+            result_monitor[k,:] = current_spike_count
+            input_numbers[k] = testing['y'][j%10000][0]
             spike_times.append(spike_counters_ae.t[spike_counters_ae.i==0])
-        if j % 100 == 0 and j > 0:
+        else:
+            #during training dump the weight matrix with_i
+            if not test_mode and j % 10 == 0:
+                np.save(data_path + 'activity/weights_ae_' + str(j), connections_aeae.w)
+        if k % 100 == 0 and k > 0:
             print( 'runs done:', j, 'of', int(num_examples)) 
         rate = zero_arr
         input_intensity = start_input_intensity
         #set_parameter_value(param_rate, zero_arr )
         run_network(device, i)
         j += 1
-
-        
-    i+=1
+        k += 1
+    i += 1
 
 print( 'total time:', (time.time() - start_time)/60)
 
@@ -482,6 +499,6 @@ else:
     np.save(data_path + './activity/inputNumbers' + str(num_examples), input_numbers)
     np.save(data_path + './activity/spikeTimes' + str(num_examples), spike_times)
 
-if clear_output:
-    #force clear the folder /output
-    os.rmdir('./output')
+if CLEAR_OUTPUT:
+        #force clear the folder /output
+        shutil.rmtree('./output')
