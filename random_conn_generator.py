@@ -69,7 +69,7 @@ def create_weights():
         weightMatrix *= weight['ee_input']
         if len(muteNeurons) > 0:
             for i in muteNeurons:
-                weightMatrix[:,i] = 1e-4
+                weightMatrix[:,i] = 0
         if pConn['ee_input'] < 1.0:
             weightMatrix, weightList = sparsenMatrix(weightMatrix, pConn['ee_input'])
         else:

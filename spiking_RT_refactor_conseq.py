@@ -198,7 +198,7 @@ SDTP =False
 e_to_e = True
 EE_SDTP =True
 CLEAR_OUTPUT = True
-
+MUTE_NEURONS = np.arange(0, 10)
 
 
 np.random.seed(0)
@@ -296,7 +296,7 @@ neuron_groups_ai = b.NeuronGroup(n_i, neuron_eqs_i, threshold= v_thresh_i, refra
 if DYN_CLAMP:
     dyn_clamp_neuron, group = attach_neuron(neuron_groups_ae, 0, 'v', 'I_total', dt=defaultclock.dt)
     dyn_clamp_neuron.dyn_clamp = 1
-    dyn_clamp_neuron.thresh_offset_RT = -30*b.mV
+    dyn_clamp_neuron.thresh_offset_RT = -40*b.mV
     dyn_clamp_neuron.timer = 0*b.ms
     #dyn_clamp_neuron.refrac_e = 0*b.ms
     dyn_clamp_neuron.v = -65. * b.mV
@@ -453,9 +453,9 @@ while k < (int(num_examples)):
     else:
         if i > 0:
             if SDTP:
-                normalize_weights_xe()
+                normalize_weights_xe(muteNeurons=MUTE_NEURONS)
             if e_to_e and EE_SDTP:
-                normalize_weights_ae()
+                normalize_weights_ae(muteNeurons=MUTE_NEURONS)
         rate = training['x'][j%60000,:,:].reshape((n_input)) / 8. *  input_intensity
     #set_the new rates, propagate the weights and theta
     run_network(device, i)
