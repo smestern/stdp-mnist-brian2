@@ -36,17 +36,24 @@ def sparsenMatrix(baseMatrix, pConn):
 
 def create_weights():
 
+    DEFAULT_NE = 400
+
+
+
     nInput = 784
     nE = 400
     nI = nE
+    SF = (1/(nE/DEFAULT_NE))
+    SF_in = 1
+
     dataPath = './random/'
     weight = {}
-    weight['ee_input'] = 0.3
-    weight['ei_input'] = 0.2
-    weight['ee'] = 10.0
-    weight['ei'] = 10.4
-    weight['ie'] = 17.0
-    weight['ii'] = 0.4
+    weight['ee_input'] = 0.3 * SF_in
+    weight['ei_input'] = 0.2 * SF_in
+    weight['ee'] = 4 * SF
+    weight['ei'] = 10.4 * SF
+    weight['ie'] = 17.0 * SF
+    weight['ii'] = 0.4  * SF
     pConn = {}
     pConn['ee_input'] = 1.0
     pConn['ei_input'] = 0.1
@@ -113,9 +120,9 @@ def create_weights():
                 weightMatrix[i,i] = 0
 
             if len(muteNeurons) > 0:
-                #for the muted neurons, dial the inhibition down by a factor of 10
+                #for the muted neurons, dial the inhibition down
                 for i in muteNeurons:
-                    weightMatrix[:, i] *= 0.01
+                    weightMatrix[:, i] *= len(muteNeurons)/nInput
             weightList = [(i, j, weightMatrix[i,j]) for i in range(nI) for j in range(nE)]
         else:
             weightMatrix = np.random.random((nI, nE))

@@ -106,7 +106,7 @@ def normalize_weights_xe(muteNeurons=None):
     connections_xeae.w = temp_conn[connections_xeae.i, connections_xeae.j]
 
 
-def normalize_weights_ae(muteNeurons=None, muteNeurons_ae_sf=3e6):
+def normalize_weights_ae(muteNeurons=None, muteNeurons_ae_sf=(7. * (784/10))):
     len_source = len(connections_aeae.source)
     len_target = len(connections_aeae.target)
     connection = np.zeros((len_source, len_target))
@@ -116,10 +116,10 @@ def normalize_weights_ae(muteNeurons=None, muteNeurons_ae_sf=3e6):
     if muteNeurons is not None:
         Non_mute = np.setdiff1d(np.arange(n_e), muteNeurons)
         colFactors = np.copy(colSums)
-        colFactors[Non_mute ] = 78./colSums[Non_mute ]
+        colFactors[Non_mute ] = (7. * (784/len_source))/colSums[Non_mute ]
         colFactors[muteNeurons] = muteNeurons_ae_sf/colSums[muteNeurons]
     else:
-        colFactors = 78./colSums
+        colFactors = 7./colSums
     for j in range(n_e):
         temp_conn[:,j] *= colFactors[j]
     connections_aeae.w = temp_conn[connections_aeae.i, connections_aeae.j]
@@ -194,7 +194,7 @@ test_mode = False
 
 DYN_CLAMP = True
 BLANKED = False
-SDTP =False
+SDTP = False
 e_to_e = True
 EE_SDTP =True
 CLEAR_OUTPUT = True
