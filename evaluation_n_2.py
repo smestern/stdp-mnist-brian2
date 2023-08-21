@@ -14,6 +14,7 @@ import pickle as pickle
 from struct import unpack
 from brian2 import *
 import pandas as pd
+import glob
 CLASSES_SEEN = 2
 #------------------------------------------------------------------------------
 # functions
@@ -95,10 +96,11 @@ def binarze_spikes(spike_times, stim_length=0.35, bin_size=0.001):
     return np.vstack((binned_spikes))
 
 MNIST_data_path = os.getcwd()+'/MNIST/'
-data_path = './activity_no_SDTP/'
-training_ending = '600'
-testing_ending = '600'
-SUM_TOTAL_TESTS = 600
+data_path = './E_TO_E_no_XE_400/8/EXP_1_trial_1/activity/'
+
+SUM_TOTAL_TESTS = 300
+training_ending = str(SUM_TOTAL_TESTS)
+testing_ending = str(SUM_TOTAL_TESTS)
 start_time_training = 0
 end_time_training = int(training_ending)
 start_time_testing = 0
@@ -256,13 +258,13 @@ if spike_times is not None:
     print( 'SVM accuracy: ', balanced_accuracy_score(y_test, y_pred))
     print( 'SVM f1 score: ', f1_score(y_test, y_pred, average='macro'))
     #permutation test
-    score, permutation_scores, pvalue = permutation_test_score(clf, x_test, y_test, scoring="f1_macro", cv=5, n_permutations=100, n_jobs=1)
+    score, permutation_scores, pvalue = permutation_test_score(clf, x_test, y_test, scoring='balanced_accuracy', cv=5, n_permutations=100, n_jobs=1)
     print( "Classification score %s (pvalue : %s)" % (score, pvalue))
 
     
 
     print("===Testing with binarized spike times===")
-    bin_spikes = binarze_spikes(spike_times, 0.35, 0.01)[idx_include]
+    bin_spikes = binarze_spikes(spike_times, 0.35, 0.05)[idx_include]
     bin_spikes = StandardScaler().fit_transform(bin_spikes)
     x_train, x_test, y_train, y_test = train_test_split(bin_spikes, testing_input_numbers, test_size=0.3, stratify=testing_input_numbers, random_state=0)
     clf = svm.SVC()
@@ -287,7 +289,31 @@ for neuron in np.arange(testing_result_monitor.shape[1]):
     print(f"Cross Val Acc {np.nanmean(scores)}")
     #print(f"Cross Val Acc {np.nanstd(scores)}")
 #save the dict
-import pandas as pd
+
 df = pd.DataFrame.from_dict(neuron_cross_val, orient='index')
 df.to_csv(data_path+'neuron_cross_val.csv')
+
+#load the weights
+weights = glob.glob(data_path+'weights_ae_*.npy')
+
+if len(weights)> 0:
+    weight_mat = [np.load(x).reshape(400, 400) for x in weights]
+    weight_mat = np.dstack(weight_mat).T
+    incoming_w = weight_mat[:,0, :]
+    outgoing_w = weight_mat[:,:, 0]
+    
+    #min max scale by row
+    incoming_w = MinMaxScaler().fit_transform(incoming_w).T
+    outgoing_w = MinMaxScaler().fit_transform(outgoing_w).T
+
+    
+    fig, ax = plt.subplots(1,2, num=999)
+    ax[0].imshow(incoming_w.T, aspect='auto')
+    ax[0].set_title('Incoming weights')
+    ax[1].imshow(outgoing_w.T, aspect='auto')
+    ax[1].set_title('Outgoing weights')
+
 plt.show()
+    #
+    
+

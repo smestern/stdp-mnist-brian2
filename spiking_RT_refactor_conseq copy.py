@@ -13,12 +13,14 @@ from struct import unpack
 from brian2 import *
 from ni_interface.ni_brian2 import *
 import time
+import copy as defaultcopy
 import shutil
 defaultclock.dt = 0.1*ms
 
+
+
 set_device('cpp_standalone', build_on_run=False)
 #device = get_device()
-
 # specify the location of the MNIST data
 MNIST_data_path = './MNIST/'
 
@@ -64,6 +66,18 @@ def get_labeled_data(picklename, bTrain = True):
         pickle.dump(data, open("%s.pickle" % picklename, "wb"))
     return data
 
+def find_trial_num(path):
+    #find the trial number
+    trial_num = 0
+    while os.path.exists(path + 'EXP_1_trial_' + str(trial_num)):
+        trial_num += 1
+    return trial_num
+
+def find_or_make_path(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+    return path
+
 def get_matrix_from_file(fileName, n_src, n_tgt):
     readout = np.load(fileName)
     print( readout.shape, fileName)
@@ -73,12 +87,103 @@ def get_matrix_from_file(fileName, n_src, n_tgt):
     return value_arr
 
 
+
+def find_trial_num(path):
+    #find the trial number
+    trial_num = 0
+    while os.path.exists(path + 'EXP_1_trial_' + str(trial_num)):
+        trial_num += 1
+    return trial_num
+
+def make_exp_paths(EXP_path, neuron_num, trial_num, TEST_MODE=False):
+    #make a new folder for the experiment should be /date/neuron_num/EXP_1_trial_num
+    base_path = defaultcopy.copy(EXP_path)
+    EXP_path = EXP_path + str(neuron_num) + '/'
+    EXP_path = find_or_make_path(EXP_path)
+    #determine the trial number
+    if TEST_MODE:
+        trial_num = find_trial_num(EXP_path) - 1
+    else:
+        trial_num = find_trial_num(EXP_path)
+    #make the trial folder
+    EXP_path = EXP_path + 'EXP_1_trial_' + str(trial_num) + '/'
+    EXP_path = find_or_make_path(EXP_path)
+    #copy the weights file to the trial folder, for reference
+    if os.path.exists(os.path.abspath(EXP_path+'random/'))==False:
+        
+        shutil.copytree(os.path.abspath(base_path+'random/'), EXP_path + '/random/')
+    find_or_make_path(EXP_path + '/activity/')
+    find_or_make_path(EXP_path + '/weights/')
+    return EXP_path
+
+
+#GLOBALS
+test_mode = True
+DYN_CLAMP = False
+BLANKED = False
+SDTP = False
+E_TO_E = True
+EE_SDTP =True
+CLEAR_OUTPUT = True
+MUTE_NEURONS = [] #np.arange(0, 10).tolist()
+NUM_EXAMPLES=  300
+
+
+#EXPERIMENTS
+EXP_1 = False
+EXP_2 = False
+EXP_3 = False
+EXP_4 = True
+
+
+Nneurons = 400
+
+EXP_1_path = f'./no_EE_w_STDP_{Nneurons}/'
+EXP_2_path = f'./E_TO_E_no_STDP_{Nneurons}/'
+EXP_3_path = f'./E_TO_E_ALL_STDP_{Nneurons}/'
+EXP_4_path = f'./E_TO_E_no_XE_{Nneurons}/'
+
+TEST_MODE = test_mode
+
+neuron_num = 8
+trial_num = 0
+
+if EXP_1:
+    EXP_1_path = make_exp_paths(EXP_1_path, neuron_num, trial_num, TEST_MODE)
+    data_path= EXP_1
+    E_TO_E = False
+    SDTP = True
+elif EXP_2:
+    EXP_2_path = make_exp_paths(EXP_2_path, neuron_num, trial_num, TEST_MODE)
+    
+elif EXP_3:
+    EXP_3_path = make_exp_paths(EXP_3_path, neuron_num, trial_num, TEST_MODE)
+    SDTP = True
+    E_TO_E = True
+    EE_SDTP = True
+    data_path = EXP_3_path
+    
+elif EXP_4:
+    EXP_4_path = make_exp_paths(EXP_4_path, neuron_num, trial_num, TEST_MODE)
+    data_path = EXP_4_path
+    SDTP=False
+    MUTE_NEURONS=np.arange(10).tolist()
+
+
+
+ 
+#ACTUAL NETWORK CODE. RUNNING THIS IN A FUNCTION BREAKS IT SO IT IS GLOBAL LMAO
+#DONT TOUCH THIS
+
+
+
+seed(42)
 def save_connections():
     print( 'save connections')
     conn = connections_xeae
     connListSparse = list(zip(conn.i, conn.j, conn.w))
     np.save(data_path + 'weights/XeAe', connListSparse)
-    if e_to_e:
+    if E_TO_E:
         conn = connections_aeae
         connListSparse = list(zip(conn.i, conn.j, conn.w))
         np.save(data_path + 'weights/AeAe', connListSparse)
@@ -97,7 +202,7 @@ def normalize_weights_xe(muteNeurons=None):
     if muteNeurons is not None: 
         for i in range(len(muteNeurons)):
             colSums[muteNeurons[i]] = 1
-    colFactors = 7./colSums
+    colFactors = 7.8/colSums
     for j in range(n_e):
         temp_conn[:,j] *= colFactors[j]
     if muteNeurons is not None:
@@ -116,10 +221,10 @@ def normalize_weights_ae(muteNeurons=None, muteNeurons_ae_sf=(7. * (784/10))):
     if muteNeurons is not None:
         Non_mute = np.setdiff1d(np.arange(n_e), muteNeurons)
         colFactors = np.copy(colSums)
-        colFactors[Non_mute ] = (1. * (784/(400/len_source))/colSums[Non_mute ]
+        colFactors[Non_mute ] = (1. * (784/len_source))/colSums[Non_mute ]
         colFactors[muteNeurons] = muteNeurons_ae_sf/colSums[muteNeurons]
     else:
-        colFactors = 7./colSums
+        colFactors = 78./colSums
     for j in range(n_e):
         temp_conn[:,j] *= colFactors[j]
     connections_aeae.w = temp_conn[connections_aeae.i, connections_aeae.j]
@@ -141,7 +246,7 @@ def run_network(device, i):
             if key == 'post1' or key == 'post2' or key == 'post2before' or key=='w':
                 
                 run_args[getattr(connections_xeae, key)] = val
-        if e_to_e:
+        if E_TO_E:
             for key, val in connections_aeae.get_states().items():
                 if key == 'post1' or key == 'post2' or key == 'post2before' or key=='w':
                     
@@ -166,8 +271,8 @@ def plot_state(state_monitor, spike_monitor, j):
     clf()
     subplot(311)
     title(f"iter {j}")
-    scatter( spike_monitor.t / ms,spike_monitor.i, color='k', marker='.')
-
+    scatter( spike_monitor.t[spike_monitor.i<=10] / ms,spike_monitor.i[spike_monitor.i<=10], color='k', marker='.')
+    ylim(0, 11)
     subplot(312)
     plot(state_monitor.t / ms, state_monitor.I_total[0] / pA)
     twinx(
@@ -188,42 +293,27 @@ def plot_state(state_monitor, spike_monitor, j):
 #------------------------------------------------------------------------------
 # set parameters and equations
 #------------------------------------------------------------------------------
-#GLOBAL SETTINGS
-test_mode = False
-
-
-DYN_CLAMP = True
-BLANKED = False
-SDTP = False
-e_to_e = True
-EE_SDTP =True
-CLEAR_OUTPUT = True
-MUTE_NEURONS = np.arange(0, 10)
-
 
 np.random.seed(0)
-data_path = ''
-
-num_examples =  300 * 1 # 추가
 ending    = '' # 추가
 n_output  = 10 # 추가
-n_e =400
+n_e = Nneurons
 n_i = n_e
 n_input = 784
 
-input_intensity = 2.
+input_intensity = 4.
 start_input_intensity = input_intensity
 
 previous_spike_count = np.zeros(n_e)
-input_numbers = [0] * num_examples
+input_numbers = [0] * NUM_EXAMPLES
 
 if test_mode:
-    result_monitor = np.zeros((num_examples,10))
+    result_monitor = np.zeros((NUM_EXAMPLES,10))
 
 
 single_example_time =   0.35 * b.second
 resting_time = 0.25 * b.second
-runtime = num_examples * (single_example_time + resting_time)
+runtime = NUM_EXAMPLES* (single_example_time + resting_time)
 
 use_testing_set       = True # add
 
@@ -257,7 +347,7 @@ neuron_eqs_e = '''
         dv/dt = ((v_rest_e - v) + (I_synE+I_synI) / nS) / (100*ms)  : volt (unless refractory)
         I_synE = ge * nS *         -v                           : amp
         I_synI = gi * nS * (-100.*mV-v)                          : amp
-        I_total = clip(I_synE + I_synI, -550*pA, 550*pA)                                : amp
+        I_total = clip(I_synE + I_synI, -250*pA, 250*pA)  *4                    : amp
         dge/dt = -ge/(1.0*ms)                                   : 1
         dgi/dt = -gi/(2.0*ms)                                  : 1
         thresh_offset_RT : volt
@@ -296,7 +386,7 @@ neuron_groups_ai = b.NeuronGroup(n_i, neuron_eqs_i, threshold= v_thresh_i, refra
 if DYN_CLAMP:
     dyn_clamp_neuron, group = attach_neuron(neuron_groups_ae, 0, 'v', 'I_total', dt=defaultclock.dt)
     dyn_clamp_neuron.dyn_clamp = 1
-    dyn_clamp_neuron.thresh_offset_RT = -40*b.mV
+    dyn_clamp_neuron.thresh_offset_RT = -20*b.mV
     dyn_clamp_neuron.timer = 0*b.ms
     #dyn_clamp_neuron.refrac_e = 0*b.ms
     dyn_clamp_neuron.v = -65. * b.mV
@@ -332,7 +422,7 @@ connections_aiae.connect(i=AiAe_idxs[:,0], j=AiAe_idxs[:,1]) # all-to-all connec
 connections_aiae.w = weightMatrix[AiAe_idxs[:,0], AiAe_idxs[:,1]]
 
 # === Generate AeAe connections ===
-if e_to_e:
+if E_TO_E:
     if test_mode:
         weightMatrix = get_matrix_from_file(data_path + 'weights/AeAe.npy', n_e, n_e)
     else:
@@ -379,7 +469,7 @@ else:
 model = 'w : 1'
 pre = 'ge_post += w'
 post = ''
- 
+
 if not test_mode and SDTP:
     print( 'create STDP for connection XeAe')
     model += eqs_stdp_ee
@@ -415,7 +505,7 @@ zero_arr = np.zeros(n_input)
 #param_rate = initialize_parameter(input_groups_xe.rates, zero_arr )
 run(single_example_time, report='text')
 
-device.build(compile=True, run=False, debug=False)
+device.build(compile=True, run=False,  debug=False)
 #device.run(device.project_dir, with_output=False, run_args=[])
 
 
@@ -441,7 +531,15 @@ numbers_to_obs = np.arange(4).tolist()
 i = 0 #number of times loop has run, mostly for checking the iter
 j = 0 #j is example number
 k = 0 #k is number of training examples shown
-while k < (int(num_examples)):
+
+#make sure the network enforces some spikes for the first cell
+#every three examples we want at least one spike
+#this is to make sure the network doesn't get stuck in a rut
+#where it doesn't have any spikes
+n0_spikes = 0
+bool_pass_n0 = False
+while k < (int(NUM_EXAMPLES)):
+    bool_pass_n0 = True
     if test_mode and (testing['y'][j%60000][0] not in numbers_to_obs):
         j += 1
         continue
@@ -454,7 +552,7 @@ while k < (int(num_examples)):
         if i > 0:
             if SDTP:
                 normalize_weights_xe(muteNeurons=MUTE_NEURONS)
-            if e_to_e and EE_SDTP:
+            if E_TO_E and EE_SDTP:
                 normalize_weights_ae(muteNeurons=MUTE_NEURONS)
         rate = training['x'][j%60000,:,:].reshape((n_input)) / 8. *  input_intensity
     #set_the new rates, propagate the weights and theta
@@ -462,11 +560,16 @@ while k < (int(num_examples)):
     plot_state(state_monitors_ae, spike_counters_ae, k)
     current_spike_count = np.asarray(spike_counters_ae.count[:10]) #- previous_spike_count
     previous_spike_count = np.copy(spike_counters_ae.count[:10])
-    if np.sum(current_spike_count) <1:
+    #create conditonal for n0 spikes
+    if current_spike_count[0] >=  1 and n0_spikes < 5:
+        bool_pass_n0    = True
+    if current_spike_count[0] < 1 and n0_spikes >= 5:
+        bool_pass_n0    = False
+    if np.sum(current_spike_count) <1 or (np.sum(current_spike_count) >= 1 and bool_pass_n0==False):
         input_intensity += 1
         rate = zero_arr
         run_network(device, i)
-    else:
+    elif np.sum(current_spike_count) >= 1 and bool_pass_n0:
         if test_mode:
             result_monitor[k,:] = current_spike_count
             input_numbers[k] = testing['y'][j%10000][0]
@@ -476,14 +579,24 @@ while k < (int(num_examples)):
             if not test_mode and j % 10 == 0:
                 np.save(data_path + 'activity/weights_ae_' + str(j), connections_aeae.w)
         if k % 100 == 0 and k > 0:
-            print( 'runs done:', j, 'of', int(num_examples)) 
+            print( 'runs done:', j, 'of', int(NUM_EXAMPLES)) 
         rate = zero_arr
         input_intensity = start_input_intensity
         #set_parameter_value(param_rate, zero_arr )
         run_network(device, i)
         j += 1
         k += 1
+        if current_spike_count[0] >=1 :
+            n0_spikes =0
+
+        else:
+            n0_spikes += 1
     i += 1
+    if input_intensity > 100:
+        print( 'input intensity too high, network is probably saturated')
+        j+=1
+        input_intensity = start_input_intensity
+        k+=1
 
 print( 'total time:', (time.time() - start_time)/60)
 
@@ -495,10 +608,17 @@ if not test_mode:
     save_theta()
     save_connections()
 else:
-    np.save(data_path + './activity/resultPopVecs' + str(num_examples), result_monitor)
-    np.save(data_path + './activity/inputNumbers' + str(num_examples), input_numbers)
-    np.save(data_path + './activity/spikeTimes' + str(num_examples), spike_times)
+    np.save(data_path + './activity/resultPopVecs' + str(NUM_EXAMPLES), result_monitor)
+    np.save(data_path + './activity/inputNumbers' + str(NUM_EXAMPLES), input_numbers)
+    np.save(data_path + './activity/spikeTimes' + str(NUM_EXAMPLES), spike_times)
 
 if CLEAR_OUTPUT:
         #force clear the folder /output
         shutil.rmtree('./output')
+
+
+    
+        
+
+
+
