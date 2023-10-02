@@ -118,7 +118,7 @@ def make_exp_paths(EXP_path, neuron_num, trial_num, TEST_MODE=False):
 
 
 #GLOBALS
-test_mode = True
+test_mode = False
 DYN_CLAMP = False
 BLANKED = False
 SDTP = False
@@ -130,13 +130,13 @@ NUM_EXAMPLES=  300
 
 
 #EXPERIMENTS
-EXP_1 = False
+EXP_1 = False #No EE with STDP
 EXP_2 = False
-EXP_3 = False
-EXP_4 = True
+EXP_3 = True #E TO E with STDP on all connections
+EXP_4 = False #E TO E with STDP on E TO E connections only
 
 
-Nneurons = 400
+Nneurons = 40
 
 EXP_1_path = f'./no_EE_w_STDP_{Nneurons}/'
 EXP_2_path = f'./E_TO_E_no_STDP_{Nneurons}/'
@@ -145,7 +145,7 @@ EXP_4_path = f'./E_TO_E_no_XE_{Nneurons}/'
 
 TEST_MODE = test_mode
 
-neuron_num = 8
+neuron_num = 'DEFAULT'
 trial_num = 0
 
 if EXP_1:

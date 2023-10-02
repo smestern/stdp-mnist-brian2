@@ -96,7 +96,7 @@ def binarze_spikes(spike_times, stim_length=0.35, bin_size=0.001):
     return np.vstack((binned_spikes))
 
 MNIST_data_path = os.getcwd()+'/MNIST/'
-data_path = './E_TO_E_no_XE_400/8/EXP_1_trial_1/activity/'
+data_path = './E_TO_E_no_XE_400/7/EXP_1_trial_5/activity/'
 
 SUM_TOTAL_TESTS = 300
 training_ending = str(SUM_TOTAL_TESTS)
