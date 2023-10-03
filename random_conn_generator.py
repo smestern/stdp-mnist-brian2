@@ -85,7 +85,7 @@ def create_weights():
 
 
 
-    print( 'create connection matrices from E->I which are purely random')
+    print( 'create connection matrices from X->I which are purely random')
     connNameList = ['XeAi']
     for name in connNameList:
         weightMatrix = np.random.random((nInput, nI))
@@ -137,7 +137,7 @@ def create_weights():
         for name in connNameList:
             if nE == nE:
                 weightMatrix = np.random.random((nE, nE))
-                weightMatrix *= weight['ee']
+                weightMatrix *= weight['ee'] 
                 for i in range(nE):
                     weightMatrix[i,i] = 0
                 weightList = [(i, j, weightMatrix[i,j]) for i in range(nE) for j in range(nE)]
