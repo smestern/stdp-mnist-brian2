@@ -38,19 +38,21 @@ def create_weights():
 
     DEFAULT_NE = 400
 
-
+    weightNormSF = 0.09948979591836734693877551020408 #a magic number from the original pub, they normalize the 784->400 weights to 78. 
+    #which is 78.0/784.0 = 0.09948979591836734693877551020408
 
     nInput = 784
     nE = 400
     nI = nE
     SF = (1/(nE/DEFAULT_NE))
-    SF_in = 1
+    SF_in = 1 
+    SF_ee = weightNormSF * nE
 
     dataPath = './random/'
     weight = {}
     weight['ee_input'] = 0.3 * SF_in
     weight['ei_input'] = 0.2 * SF_in
-    weight['ee'] = 4 * SF
+    weight['ee'] = 0.3
     weight['ei'] = 10.4 * SF
     weight['ie'] = 17.0 * SF
     weight['ii'] = 0.4  * SF
@@ -122,7 +124,7 @@ def create_weights():
             if len(muteNeurons) > 0:
                 #for the muted neurons, dial the inhibition down
                 for i in muteNeurons:
-                    weightMatrix[:, i] *= len(muteNeurons)/nInput
+                    weightMatrix[:, i] *= (len(muteNeurons)/nInput) * 0.0
             weightList = [(i, j, weightMatrix[i,j]) for i in range(nI) for j in range(nE)]
         else:
             weightMatrix = np.random.random((nI, nE))
@@ -140,11 +142,17 @@ def create_weights():
                 weightMatrix *= weight['ee'] 
                 for i in range(nE):
                     weightMatrix[i,i] = 0
+                if muteNeurons is not None: 
+                    for i in muteNeurons:
+                        weightMatrix[:, i] += weight['ee']
                 weightList = [(i, j, weightMatrix[i,j]) for i in range(nE) for j in range(nE)]
             else:
                 weightMatrix = np.random.random((nI, nE))
                 weightMatrix *= weight['ee']
                 weightMatrix, weightList = sparsenMatrix(weightMatrix, pConn['ee'])
+
+            #normalize weights such that the maximum weight is equal to SF_ee
+            weightList = [(i, j, weightMatrix[i,j]) for j in range(nE) for i in range(nE)]
             print( 'save connection matrix', name)
             np.save(dataPath+name, weightList)
 

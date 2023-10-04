@@ -2,10 +2,14 @@
 Created on 15.12.2014
 
 @author: Peter U. Diehl
+
+
+
 '''
 
 
 import numpy as np
+import argparse
 import os.path
 import pickle as pickle
 import brian2 as b
@@ -20,8 +24,15 @@ from dataset_handler import mnistDataHandler as mnistDataHandler
 #set the numpy seed
 np.random.seed(42)
 defaultclock.dt = 0.1*ms
-
-
+SCANNING = False
+#------------------------------------------------------------------------------
+#argparse here unfortunately. Since this script needs to run in the global scope
+#we need to set the variables here
+if SCANNING:
+    parser = argparse.ArgumentParser(description='set the experiment parameters')
+    scale_XeAe = parser.add_argument('--scale_XeAe', type=float, default=78.)
+    scale_AeAe = parser.add_argument('--scale_AeAe', type=float, default=1.)
+    scale_AeAe_mute = parser.add_argument('--scale_AeAe_mute', type=float, default=50.)
 
 set_device('cpp_standalone', build_on_run=False)
 #device = get_device()
@@ -76,7 +87,7 @@ def make_exp_paths(EXP_path, neuron_num, trial_num, TEST_MODE=False):
 
 
 #GLOBALS
-test_mode = False
+test_mode = True
 DYN_CLAMP = False
 BLANKED = False
 CLEAR_OUTPUT = True
@@ -106,7 +117,7 @@ EXP_4_path = f'./E_TO_E_no_XE_{Nneurons}/'
 
 TEST_MODE = test_mode
 
-neuron_num = 'DEFAULT'
+neuron_num = 'SCAN'
 trial_num = 0
 
 if EXP_1:
@@ -171,7 +182,7 @@ def normalize_weights_xe(muteNeurons=None):
             temp_conn[muteNeurons[i],:] = 0
     connections_xeae.w = temp_conn[connections_xeae.i, connections_xeae.j]
 
-def normalize_weights_ae(muteNeurons=None, muteNeurons_ae_sf=(7. * (784/10))):
+def normalize_weights_ae(muteNeurons=None, muteNeurons_ae_sf=50):
     len_source = len(connections_aeae.source)
     len_target = len(connections_aeae.target)
     connection = np.zeros((len_source, len_target))
@@ -181,8 +192,8 @@ def normalize_weights_ae(muteNeurons=None, muteNeurons_ae_sf=(7. * (784/10))):
     if muteNeurons is not None:
         Non_mute = np.setdiff1d(np.arange(n_e), muteNeurons)
         colFactors = np.copy(colSums)
-        colFactors[Non_mute ] = (1. * (784/len_source))/colSums[Non_mute ]
-        colFactors[muteNeurons] = muteNeurons_ae_sf/colSums[muteNeurons]
+        colFactors[Non_mute ] =1/colSums[Non_mute ] # (0.0994897*len_source)
+        colFactors[muteNeurons] = muteNeurons_ae_sf*(0.0994897*len_source)/colSums[muteNeurons]
     else:
         colFactors = 78./colSums
     for j in range(n_e):
@@ -227,28 +238,32 @@ def run_network(device, i):
 def plot_state(state_monitor, spike_monitor, j):
     #plot I total and v
     spike_dict = spike_monitor.spike_trains()
-    figure(figsize=(10, 5), num=0)
+    figure(figsize=(15, 5), num=0)
     clf()
-    subplot(311)
+    subplot(411)
     title(f"iter {j}")
-    scatter( spike_monitor.t[spike_monitor.i<=10] / ms,spike_monitor.i[spike_monitor.i<=10], color='k', marker='.')
+    scatter( spike_monitor.t[spike_monitor.i<10] / ms,spike_monitor.i[spike_monitor.i<10], color='k', marker='.')
     ylim(0, 11)
     xlim(0, 350)
-    subplot(312)
+    subplot(412)
     plot(state_monitor.t / ms, state_monitor.I_total[0] / pA)
     twinx(
     )   
-    plot(state_monitor.t / ms, state_monitor.theta[0] / mV, color='r')
+    plot(state_monitor.t
+          / ms, state_monitor.theta[0] / mV, color='r')
     xlabel('Time (ms)')
     ylabel('I in (pA)')
-    subplot(313)
+    xlim(0, 350)
+    subplot(413)
     plot(state_monitor.t / ms, state_monitor.v[0] / mV)
     scatter(spike_dict[0] / ms, np.ones(len(spike_dict[0])) * -50, color='r')
     xlabel('Time (ms)')
     ylabel('v (mV)')
-    
-    if j == 0:
-     show(block=False)
+    xlim(0, 350)
+    subplot(414)
+    scatter(spike_monitor.t / ms, spike_monitor.i, color='k', marker='.')
+    xlim(0, 350)
+    pause(0.01)
 
 
 
@@ -341,6 +356,7 @@ eqs_stdp_post_ee = 'post2before = post2; w = clip(w + nu_ee_post * pre * post2be
 
 neuron_groups_ae = b.NeuronGroup(n_e, neuron_eqs_e, threshold= v_thresh_e, refractory= refrac_e, reset= scr_e, method='euler')
 neuron_groups_ae.dyn_clamp = 0
+
 neuron_groups_ai = b.NeuronGroup(n_i, neuron_eqs_i, threshold= v_thresh_i, refractory= refrac_i, reset= v_reset_i, method='euler')
 #------------------------------------------------------------------------------
 # attach the dynamic clamp'd neuron to the network
@@ -496,6 +512,8 @@ n0_spikes = 0
 bool_pass_n0 = False
 n0_Threshold = None
 
+#record the input intensity history
+input_intensity_history = []
 
 while k < (int(NUM_EXAMPLES)):
     bool_pass_n0 = True
@@ -527,7 +545,7 @@ while k < (int(NUM_EXAMPLES)):
         if current_spike_count[0] < 1 and n0_Threshold >= n0_Threshold:
             bool_pass_n0    = False
     else:
-        bool_pass_n0
+        bool_pass_n0 = True
 
     
     if np.sum(current_spike_count) <1 or (np.sum(current_spike_count) >= 3 and bool_pass_n0==False):
@@ -546,16 +564,23 @@ while k < (int(NUM_EXAMPLES)):
         if k % 100 == 0 and k > 0:
             print( 'runs done:', j, 'of', int(NUM_EXAMPLES)) 
         rate = zero_arr
+        input_intensity_history.append(input_intensity)
+        if j % 10 == 0 and j > 0:
+            start_input_intensity = np.mean(input_intensity_history)
+
         input_intensity = start_input_intensity
-        #set_parameter_value(param_rate, zero_arr )
+        #run the network for the resting time
         run_network(device, i)
+
+        #iter the counts
         j += 1
         k += 1
+        #reset the n0 spikes
         if current_spike_count[0] >=1 :
             n0_spikes =0
-
         else:
             n0_spikes += 1
+        
     i += 1
     if input_intensity > 100:
         print( 'input intensity too high, network is probably saturated')

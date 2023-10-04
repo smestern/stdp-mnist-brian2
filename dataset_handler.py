@@ -45,6 +45,11 @@ class mnistDataHandler(object):
             label_idxs = np.random.choice(label_idxs, samples_per_label, replace=False)
             filtered_data['x'][i*samples_per_label:(i+1)*samples_per_label] = data['x'][label_idxs]
             filtered_data['y'][i*samples_per_label:(i+1)*samples_per_label] = data['y'][label_idxs]
+        #shuffle the data
+        idxs = np.arange(N)
+        np.random.shuffle(idxs)
+        filtered_data['x'] = filtered_data['x'][idxs]
+        filtered_data['y'] = filtered_data['y'][idxs]
         return filtered_data
 
 
