@@ -15,7 +15,9 @@ from struct import unpack
 from brian2 import *
 import pandas as pd
 import glob
-CLASSES_SEEN = 2
+CLASSES_SEEN = 4
+n_e = 10
+n_input = 784
 #------------------------------------------------------------------------------
 # functions
 #------------------------------------------------------------------------------
@@ -98,7 +100,7 @@ def binarze_spikes(spike_times, stim_length=0.35, bin_size=0.001):
 def eval_results(path='./E_TO_E_no_XE_400/DEFAULT/EXP_1_trial_65/activity/', training_ending='300', testing_ending='300',
                   start_time_training=0, end_time_training=300, start_time_testing=0, end_time_testing=300):
     MNIST_data_path = os.getcwd()+'/MNIST/'
-    data_path = './E_TO_E_no_XE_400/DEFAULT/EXP_1_trial_65/activity/'
+    data_path = path
 
     SUM_TOTAL_TESTS = 300
     training_ending = str(SUM_TOTAL_TESTS)
@@ -108,8 +110,7 @@ def eval_results(path='./E_TO_E_no_XE_400/DEFAULT/EXP_1_trial_65/activity/', tra
     start_time_testing = 0
     end_time_testing = int(testing_ending)
 
-    n_e = 10
-    n_input = 784
+    
     ending = ''
 
     print( 'load MNIST')
@@ -163,10 +164,12 @@ def eval_results(path='./E_TO_E_no_XE_400/DEFAULT/EXP_1_trial_65/activity/', tra
     testing_input_numbers = testing_input_numbers[idx_]
 
     #if the in vitro neuron drifted etc, we want to exclude it from the analysis
-    idx_include = np.arange(0, 100) #this depends on the in vitro neuron, is subjective
+    idx_include = len(testing_result_monitor)*[True]
     testing_result_monitor = testing_result_monitor[idx_include]
     testing_input_numbers = testing_input_numbers[idx_include]
 
+    if len(np.unique(testing_result_monitor)) < 4:
+        return np.array([0.0, 0.0, 0.0]).reshape(1, -1)
 
 
     #train a classifier on the training data
@@ -315,7 +318,7 @@ def eval_results(path='./E_TO_E_no_XE_400/DEFAULT/EXP_1_trial_65/activity/', tra
         ax[1].imshow(outgoing_w.T, aspect='auto')
         ax[1].set_title('Outgoing weights')
 
-    plt.show()
-    return neuron_cross_val[0]
+    #plt.show()
+    return neuron_cross_val
     
 

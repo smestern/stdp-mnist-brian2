@@ -1,0 +1,63 @@
+import os
+import numpy as np
+import nevergrad as ng
+import subprocess, shlex
+import evaluation_n_2 as eval_n
+import time
+import shutil
+import pickle
+import pandas as pd
+def error_func(params, i):
+    shutil.rmtree(f"./E_TO_E_no_XE_400/SCAN/")
+    #cal with params as args
+    args = "python3 spiking_RT_refactor_conseq_with_experiments..py --scale_XeAe " + str(params['scale_XeAe']) + " --scale_AeAe " + str(params['scale_AeAe']) + " --scale_AeAe_mute " \
+        + str(params['scale_AeAe_mute']) + " --nu_pre_ee_post " + str(params['nu_pre_ee_post']) + " --nu_post_ee_pre " + str(params['nu_post_ee_pre']) + " --test_mode 0"
+    args = shlex.split(args)
+    subprocess.run(args, cwd=os.getcwd())
+    #call again with test_mode = True
+    args = "python3 spiking_RT_refactor_conseq_with_experiments..py --scale_XeAe " + str(params['scale_XeAe']) + " --scale_AeAe " + str(params['scale_AeAe']) + " --scale_AeAe_mute " \
+        + str(params['scale_AeAe_mute']) + " --nu_pre_ee_post " + str(params['nu_pre_ee_post']) + " --nu_post_ee_pre " + str(params['nu_post_ee_pre']) + " --test_mode 1"
+    args = shlex.split(args)
+    subprocess.run(args, cwd=os.getcwd())
+    #call the evaluation function
+    error = eval_n.eval_results(path=f"/home/smestern/Dropbox/brian2_SDTP/stdp-mnist-brian2/E_TO_E_no_XE_400/SCAN/EXP_1_trial_0/activity/")
+    return 1 - error[0].mean()
+    
+
+def main():
+    #make parameter space
+    # _scale_XeAe = parser.add_argument('--scale_XeAe', type=float, default=78.)
+    # _scale_AeAe = parser.add_argument('--scale_AeAe', type=float, default=1.)
+    # _scale_AeAe_mute = parser.add_argument('--scale_AeAe_mute', type=float, default=50.)
+    # _nu_pre_ee_post = parser.add_argument('--nu_pre_ee_post', type=float, default=0.0001)
+    # _nu_post_ee_pre = parser.add_argument('--nu_post_ee_pre', type=float, default=0.01)
+    # _test_mode = parser.add_argument('--test_mode', type=bool, default=True)
+    param_space = ng.p.Dict(**{'scale_XeAe': ng.p.Scalar(lower=1, upper=100),
+                             'scale_AeAe': ng.p.Scalar(lower=1, upper=100),'scale_AeAe_mute': ng.p.Scalar(lower=1, upper=100),
+                             'nu_pre_ee_post': ng.p.Log(lower=1e-9, upper=1),'nu_post_ee_pre': ng.p.Log(lower=1e-9, upper=1)})
+    #make optimizer
+    #scrambled hammersley search, then TwoPointsDE
+    ScrTWODE = ng.optimizers.Chaining([ng.optimizers.ScrHammersleySearch, ng.optimizers.TwoPointsDE], [10,])
+    optimizer = ScrTWODE(parametrization=param_space, budget=20)
+    results = []
+    for _ in np.arange(20):
+        start_time = time.time()
+        points = optimizer.ask()
+        error = error_func(points.value, _)
+        optimizer.tell(points, error)
+        temp_results = {'error': 1 - np.copy(error), 'run_time': time.time() - start_time}
+
+        #load the metadata 
+        metadata = pickle.load(open(\
+            f"./E_TO_E_no_XE_400/SCAN/EXP_1_trial_0/metadata.pickle", "rb"))
+        temp_results.update(metadata)
+        temp_results.update(points.value)
+        results.append(temp_results)
+    
+    #save the results to csv
+    results = pd.DataFrame(results)
+    results.to_csv(f"./E_TO_E_no_XE_400/SCAN/EXP_1_trial_0/results.csv")
+    print(optimizer )
+
+if __name__ == "__main__":
+    main()

@@ -3,11 +3,14 @@ Created on 15.12.2014
 
 @author: Peter U. Diehl
 
+Modified by: 
 
 
+Modified for RT experiment by: Samuel Mestern
+
+Note that this script is not meant to be run as a function. It is meant to be run in the global scope, due to hangups with brian2 C++ standalone mode.
+This script IS not parallel friendly. running in parallel will cause the brian2 C++ standalone mode to crash, probably.
 '''
-
-
 import numpy as np
 import argparse
 import os.path
@@ -24,16 +27,26 @@ from dataset_handler import mnistDataHandler as mnistDataHandler
 #set the numpy seed
 np.random.seed(42)
 defaultclock.dt = 0.1*ms
-SCANNING = False
+SCANNING = False 
 #------------------------------------------------------------------------------
 #argparse here unfortunately. Since this script needs to run in the global scope
 #we need to set the variables here
-if SCANNING:
-    parser = argparse.ArgumentParser(description='set the experiment parameters')
-    scale_XeAe = parser.add_argument('--scale_XeAe', type=float, default=78.)
-    scale_AeAe = parser.add_argument('--scale_AeAe', type=float, default=1.)
-    scale_AeAe_mute = parser.add_argument('--scale_AeAe_mute', type=float, default=50.)
 
+parser = argparse.ArgumentParser(description='set the experiment parameters')
+parser.add_argument('--scale_XeAe', type=float, default=78.)
+parser.add_argument('--scale_AeAe', type=float, default=1.)
+parser.add_argument('--scale_AeAe_mute', type=float, default=50.)
+parser.add_argument('--nu_pre_ee_post', type=float, default=0.0001)
+parser.add_argument('--nu_post_ee_pre', type=float, default=0.01)
+parser.add_argument('--test_mode', type=int, default=1)
+args = parser.parse_args()
+_scale_XeAe = args.scale_XeAe
+_scale_AeAe = args.scale_AeAe
+_scale_AeAe_mute = args.scale_AeAe_mute
+_nu_pre_ee_post =  args.nu_pre_ee_post
+_nu_post_ee_pre = args.nu_post_ee_pre
+_test_mode = bool(args.test_mode)
+print(args)
 set_device('cpp_standalone', build_on_run=False)
 #device = get_device()
 # specify the location of the MNIST data
@@ -87,7 +100,7 @@ def make_exp_paths(EXP_path, neuron_num, trial_num, TEST_MODE=False):
 
 
 #GLOBALS
-test_mode = True
+test_mode = _test_mode
 DYN_CLAMP = False
 BLANKED = False
 CLEAR_OUTPUT = True
@@ -164,6 +177,13 @@ def save_theta():
     print( 'save theta')
     np.save(data_path + 'weights/theta_A', neuron_groups_ae.theta)
 
+def save_metadata():
+    #save the input intensities
+    print( 'save metadata')
+    results = {'input_intensity': input_intensity, 'resting_time': resting_time, 'single_example_time': single_example_time,
+                'runtime': runtime, 'examples_seen': j}
+    pickle.dump(results, open(data_path + 'metadata.pickle', 'wb'))
+
 def normalize_weights_xe(muteNeurons=None):
     len_source = len(connections_xeae.source)
     len_target = len(connections_xeae.target)
@@ -174,7 +194,7 @@ def normalize_weights_xe(muteNeurons=None):
     if muteNeurons is not None: 
         for i in range(len(muteNeurons)):
             colSums[muteNeurons[i]] = 1
-    colFactors = 78./colSums
+    colFactors = _scale_XeAe/colSums
     for j in range(n_e):
         temp_conn[:,j] *= colFactors[j]
     if muteNeurons is not None:
@@ -182,7 +202,7 @@ def normalize_weights_xe(muteNeurons=None):
             temp_conn[muteNeurons[i],:] = 0
     connections_xeae.w = temp_conn[connections_xeae.i, connections_xeae.j]
 
-def normalize_weights_ae(muteNeurons=None, muteNeurons_ae_sf=50):
+def normalize_weights_ae(muteNeurons=None, muteNeurons_ae_sf=_scale_AeAe_mute):
     len_source = len(connections_aeae.source)
     len_target = len(connections_aeae.target)
     connection = np.zeros((len_source, len_target))
@@ -192,7 +212,7 @@ def normalize_weights_ae(muteNeurons=None, muteNeurons_ae_sf=50):
     if muteNeurons is not None:
         Non_mute = np.setdiff1d(np.arange(n_e), muteNeurons)
         colFactors = np.copy(colSums)
-        colFactors[Non_mute ] =1/colSums[Non_mute ] # (0.0994897*len_source)
+        colFactors[Non_mute ] = _scale_AeAe/colSums[Non_mute ] # (0.0994897*len_source)
         colFactors[muteNeurons] = muteNeurons_ae_sf*(0.0994897*len_source)/colSums[muteNeurons]
     else:
         colFactors = 78./colSums
@@ -279,6 +299,12 @@ n_i = n_e
 n_input = 784
 
 input_intensity = 4.
+if test_mode:
+    #load the metadata back in from the fitting
+    metadata = pickle.load(open(data_path + 'metadata.pickle', 'rb'))
+    input_intensity = metadata['input_intensity']
+else:
+    input_intensity = 2.
 start_input_intensity = input_intensity
 
 previous_spike_count = np.zeros(n_e)
@@ -306,8 +332,8 @@ refrac_i = 2. * b.ms
 tc_pre_ee = 20*b.ms
 tc_post_1_ee = 20*b.ms
 tc_post_2_ee = 40*b.ms
-nu_ee_pre =  0.0001      # learning rate
-nu_ee_post = 0.01       # learning rate
+nu_ee_pre =  _nu_pre_ee_post     # learning rate
+nu_ee_post = _nu_post_ee_pre    # learning rate
 wmax_ee = 1.0
 
 if test_mode:
@@ -534,7 +560,7 @@ while k < (int(NUM_EXAMPLES)):
         rate = training['x'][j%60000,:,:].reshape((n_input)) / 8. *  input_intensity
     #set_the new rates, propagate the weights and theta
     run_network(device, i)
-    plot_state(state_monitors_ae, spike_counters_ae, k)
+   # plot_state(state_monitors_ae, spike_counters_ae, k)
     current_spike_count = np.asarray(spike_counters_ae.count[:10]) #- previous_spike_count
     previous_spike_count = np.copy(spike_counters_ae.count[:10])
 
@@ -566,7 +592,7 @@ while k < (int(NUM_EXAMPLES)):
         rate = zero_arr
         input_intensity_history.append(input_intensity)
         if j % 10 == 0 and j > 0:
-            start_input_intensity = np.mean(input_intensity_history)
+            start_input_intensity = np.mean(input_intensity_history) *0.9
 
         input_intensity = start_input_intensity
         #run the network for the resting time
@@ -601,6 +627,7 @@ print( 'save results')
 if not test_mode:
     save_theta()
     save_connections()
+    save_metadata()
 else:
     np.save(data_path + './activity/resultPopVecs' + str(NUM_EXAMPLES), result_monitor)
     np.save(data_path + './activity/inputNumbers' + str(NUM_EXAMPLES), input_numbers)
