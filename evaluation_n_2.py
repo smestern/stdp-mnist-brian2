@@ -168,7 +168,7 @@ def eval_results(path='./E_TO_E_no_XE_400/DEFAULT/EXP_1_trial_65/activity/', tra
     testing_result_monitor = testing_result_monitor[idx_include]
     testing_input_numbers = testing_input_numbers[idx_include]
 
-    if len(np.unique(testing_result_monitor)) < 4:
+    if len(np.unique(testing_input_numbers)) < 4:
         return np.array([0.0, 0.0, 0.0]).reshape(1, -1)
 
 
@@ -304,21 +304,25 @@ def eval_results(path='./E_TO_E_no_XE_400/DEFAULT/EXP_1_trial_65/activity/', tra
     if len(weights)> 0:
         weight_mat = [np.load(x).reshape(400, 400) for x in weights]
         weight_mat = np.dstack(weight_mat).T
-        incoming_w = weight_mat[:,0, :]
-        outgoing_w = weight_mat[:,:, 0]
-        
-        #min max scale by row
-        incoming_w = MinMaxScaler().fit_transform(incoming_w).T
-        outgoing_w = MinMaxScaler().fit_transform(outgoing_w).T
+        for _ in np.arange(20):
+            #weight_mat[_,:,_] = 0
+            incoming_w = weight_mat[:,_, :]
+            outgoing_w = weight_mat[:,:, _]
+            
+            #min max scale by row
+            incoming_w = MinMaxScaler().fit_transform(incoming_w).T
+            outgoing_w = MinMaxScaler().fit_transform(outgoing_w).T
 
-        
-        fig, ax = plt.subplots(1,2, num=999)
-        ax[0].imshow(incoming_w.T, aspect='auto')
-        ax[0].set_title('Incoming weights')
-        ax[1].imshow(outgoing_w.T, aspect='auto')
-        ax[1].set_title('Outgoing weights')
+            
+            fig, ax = plt.subplots(1,2, num=999+_)
+            ax[0].imshow(incoming_w.T, aspect='auto')
+            ax[0].set_title('Incoming weights')
+            ax[1].imshow(outgoing_w.T, aspect='auto')
+            ax[1].set_title('Outgoing weights')
 
     #plt.show()
     return neuron_cross_val
     
 
+if __name__=="__main__":
+    eval_results(path="//home/smestern/Dropbox/brian2_SDTP/stdp-mnist-brian2/E_TO_E_no_XE_400/SCAN_SDTP/EXP_1_trial_1/activity/")

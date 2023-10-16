@@ -27,25 +27,29 @@ from dataset_handler import mnistDataHandler as mnistDataHandler
 #set the numpy seed
 np.random.seed(42)
 defaultclock.dt = 0.1*ms
-SCANNING = False 
+SCANNING = True 
 #------------------------------------------------------------------------------
 #argparse here unfortunately. Since this script needs to run in the global scope
 #we need to set the variables here
 
 parser = argparse.ArgumentParser(description='set the experiment parameters')
-parser.add_argument('--scale_XeAe', type=float, default=78.)
-parser.add_argument('--scale_AeAe', type=float, default=1.)
-parser.add_argument('--scale_AeAe_mute', type=float, default=50.)
-parser.add_argument('--nu_pre_ee_post', type=float, default=0.0001)
-parser.add_argument('--nu_post_ee_pre', type=float, default=0.01)
-parser.add_argument('--test_mode', type=int, default=1)
+parser.add_argument('--scale_XeAe', type=float, default=53.530612244898)
+parser.add_argument('--scale_AeAe', type=float, default=74.3333333333333)
+parser.add_argument('--scale_AeAe_mute', type=float, default=12.88)
+parser.add_argument('--nu_pre_ee_post', type=float, default=6.49381631576212E-07)
+parser.add_argument('--nu_post_ee_pre', type=float, default=0.354813389233575)
+parser.add_argument('--tc_theta', type=float, default=1e7)
+parser.add_argument('--SDTP_ALL_OFF', type=int, default=0)
+parser.add_argument('--test_mode', type=int, default=0)
 args = parser.parse_args()
 _scale_XeAe = args.scale_XeAe
 _scale_AeAe = args.scale_AeAe
 _scale_AeAe_mute = args.scale_AeAe_mute
 _nu_pre_ee_post =  args.nu_pre_ee_post
 _nu_post_ee_pre = args.nu_post_ee_pre
+_tc_theta = args.tc_theta
 _test_mode = bool(args.test_mode)
+SDTP_ALL_OFF = bool(args.SDTP_ALL_OFF)
 print(args)
 set_device('cpp_standalone', build_on_run=False)
 #device = get_device()
@@ -152,9 +156,12 @@ elif EXP_4:
     EXP_4_path = make_exp_paths(EXP_4_path, neuron_num, trial_num, TEST_MODE)
     data_path = EXP_4_path
     SDTP=False
+    EE_SDTP = True
     MUTE_NEURONS=np.arange(10).tolist()
 
-
+if SDTP_ALL_OFF:
+    SDTP = False
+    EE_SDTP = False
 
  
 #ACTUAL NETWORK CODE. RUNNING THIS IN A FUNCTION BREAKS IT SO IT IS GLOBAL LMAO
@@ -181,7 +188,7 @@ def save_metadata():
     #save the input intensities
     print( 'save metadata')
     results = {'input_intensity': input_intensity, 'resting_time': resting_time, 'single_example_time': single_example_time,
-                'runtime': runtime, 'examples_seen': j}
+                'runtime': runtime, 'examples_seen': j, 'len_per_example': np.mean(len_per_example)}
     pickle.dump(results, open(data_path + 'metadata.pickle', 'wb'))
 
 def normalize_weights_xe(muteNeurons=None):
@@ -255,10 +262,12 @@ def run_network(device, i):
     return
 
 
-def plot_state(state_monitor, spike_monitor, j):
+def plot_state(state_monitor, spike_monitor, j, num=0):
+    if SCANNING:
+        return
     #plot I total and v
     spike_dict = spike_monitor.spike_trains()
-    figure(figsize=(15, 5), num=0)
+    figure(figsize=(15, 5), num=num)
     clf()
     subplot(411)
     title(f"iter {j}")
@@ -339,7 +348,7 @@ wmax_ee = 1.0
 if test_mode:
     scr_e = 'v = v_reset_e; timer = 0*ms'
 else:
-    tc_theta = 1e7 * b.ms
+    tc_theta = _tc_theta * b.ms
     theta_plus_e = 0.05 * b.mV
     scr_e = 'v = v_reset_e; theta += theta_plus_e; timer = 0*ms'
 offset = 20.0*b.mV
@@ -540,8 +549,9 @@ n0_Threshold = None
 
 #record the input intensity history
 input_intensity_history = []
-
+len_per_example = []
 while k < (int(NUM_EXAMPLES)):
+    st_example = time.time()
     bool_pass_n0 = True
     if test_mode and (testing['y'][j%60000][0] not in numbers_to_obs):
         j += 1
@@ -553,14 +563,14 @@ while k < (int(NUM_EXAMPLES)):
         rate = testing['x'][j%10000,:,:].reshape((n_input)) / 8. *  input_intensity
     else:
         if i > 0:
-            if SDTP:
+                #if SDTP:
                 normalize_weights_xe(muteNeurons=MUTE_NEURONS)
-            if E_TO_E and EE_SDTP:
+                #if E_TO_E and EE_SDTP:
                 normalize_weights_ae(muteNeurons=MUTE_NEURONS)
         rate = training['x'][j%60000,:,:].reshape((n_input)) / 8. *  input_intensity
     #set_the new rates, propagate the weights and theta
     run_network(device, i)
-   # plot_state(state_monitors_ae, spike_counters_ae, k)
+    plot_state(state_monitors_ae, spike_counters_ae, k)
     current_spike_count = np.asarray(spike_counters_ae.count[:10]) #- previous_spike_count
     previous_spike_count = np.copy(spike_counters_ae.count[:10])
 
@@ -578,6 +588,7 @@ while k < (int(NUM_EXAMPLES)):
         input_intensity += 1
         rate = zero_arr
         run_network(device, i)
+        plot_state(state_monitors_ae, spike_counters_ae, k, num=1)
     elif np.sum(current_spike_count) >= 1 and bool_pass_n0:
         if test_mode:
             result_monitor[k,:] = current_spike_count
@@ -597,10 +608,12 @@ while k < (int(NUM_EXAMPLES)):
         input_intensity = start_input_intensity
         #run the network for the resting time
         run_network(device, i)
-
+        plot_state(state_monitors_ae, spike_counters_ae, k, num=1)
         #iter the counts
         j += 1
         k += 1
+
+        len_per_example.append(time.time() - st_example)
         #reset the n0 spikes
         if current_spike_count[0] >=1 :
             n0_spikes =0
@@ -608,7 +621,7 @@ while k < (int(NUM_EXAMPLES)):
             n0_spikes += 1
         
     i += 1
-    if input_intensity > 100:
+    if input_intensity > 500:
         print( 'input intensity too high, network is probably saturated')
         j+=1
         input_intensity = start_input_intensity
@@ -617,7 +630,7 @@ while k < (int(NUM_EXAMPLES)):
     if (time.time() - start_time)/60 > 60:
         print( 'runs done:', j, 'of', int(NUM_EXAMPLES)) 
         break
-
+    
 print( 'total time:', (time.time() - start_time)/60)
 
 #------------------------------------------------------------------------------
