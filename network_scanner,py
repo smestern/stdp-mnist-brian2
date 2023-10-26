@@ -15,8 +15,10 @@ def call_RT(params, test_mode=False, SDTP_ALL_OFF=False):
     
     if test_mode:
         args += "--test_mode 1 "
+        args += "--num_examples 150"
     else:
         args += "--test_mode 0 "
+        args += "--num_examples 2400"
 
     if SDTP_ALL_OFF:
         args += " --SDTP_ALL_OFF 1"
@@ -39,7 +41,7 @@ def error_func(params, i):
     #call again with test_mode = True
     call_RT(params, test_mode=True)
     #call the evaluation function
-    error = eval_n.eval_results(path=f"/home/smestern/Dropbox/brian2_SDTP/stdp-mnist-brian2/E_TO_E_no_XE_400/SCAN/EXP_1_trial_0/activity/")
+    error, error_sum = eval_n.eval_results(path=f"/home/smestern/Dropbox/brian2_SDTP/stdp-mnist-brian2/E_TO_E_no_XE_400/SCAN/EXP_1_trial_0/activity/", sum_total_tests=150)
     #remove the working directory
     remove_wd()
 
@@ -48,10 +50,10 @@ def error_func(params, i):
     #call the evaluation function
     call_RT(params, test_mode=True, SDTP_ALL_OFF=True)
     #call the evaluation function
-    error_off = eval_n.eval_results(path=f"/home/smestern/Dropbox/brian2_SDTP/stdp-mnist-brian2/E_TO_E_no_XE_400/SCAN/EXP_1_trial_0/activity/")
+    error_off, error_sum_off= eval_n.eval_results(path=f"/home/smestern/Dropbox/brian2_SDTP/stdp-mnist-brian2/E_TO_E_no_XE_400/SCAN/EXP_1_trial_0/activity/", sum_total_tests=150)
 
 
-    return (1 - error[0].mean()), (error_off[0].mean())
+    return (1 - error[0].mean()) + error_off[0].mean(), {'error': error[0].mean(), 'error_off': error_off[0].mean(), "error_sum": error_sum_off}
     
 
 def main():
@@ -71,12 +73,13 @@ def main():
     ScrTWODE = ng.optimizers.Chaining([ng.optimizers.ScrHammersleySearch, ng.optimizers.TwoPointsDE], [20,])
     optimizer = ScrTWODE(parametrization=param_space, budget=30)
     results = []
-    for _ in np.arange(20):
+    for _ in np.arange(30):
         start_time = time.time()
         points = optimizer.ask()
-        error, sdtp_off_error = error_func(points.value, _)
+        error, dict_error = error_func(points.value, _)
         optimizer.tell(points, error)
-        temp_results = {'error': 1 - np.copy(error), 'run_ttime': time.time() - start_time, "sdtp_off_error": np.copy(sdtp_off_error)}
+        temp_results = {'error': 1 - np.copy(error), 'run_ttime': time.time() - start_time}
+        temp_results.update(dict_error)
 
         #load the metadata 
         metadata = pickle.load(open(\

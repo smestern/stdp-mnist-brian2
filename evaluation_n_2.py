@@ -97,12 +97,12 @@ def binarze_spikes(spike_times, stim_length=0.35, bin_size=0.001):
         binned_spikes.append(np.histogram(times/second, bins)[0])
     return np.vstack((binned_spikes))
 
-def eval_results(path='./E_TO_E_no_XE_400/DEFAULT/EXP_1_trial_65/activity/', training_ending='300', testing_ending='300',
+def eval_results(path='./E_TO_E_no_XE_400/DEFAULT/EXP_1_trial_65/activity/', sum_total_tests=600,
                   start_time_training=0, end_time_training=300, start_time_testing=0, end_time_testing=300):
     MNIST_data_path = os.getcwd()+'/MNIST/'
     data_path = path
 
-    SUM_TOTAL_TESTS = 300
+    SUM_TOTAL_TESTS = sum_total_tests
     training_ending = str(SUM_TOTAL_TESTS)
     testing_ending = str(SUM_TOTAL_TESTS)
     start_time_training = 0
@@ -167,9 +167,9 @@ def eval_results(path='./E_TO_E_no_XE_400/DEFAULT/EXP_1_trial_65/activity/', tra
     idx_include = len(testing_result_monitor)*[True]
     testing_result_monitor = testing_result_monitor[idx_include]
     testing_input_numbers = testing_input_numbers[idx_include]
-
+    print(f"found {len(idx_include)} examples to use")
     if len(np.unique(testing_input_numbers)) < 4:
-        return np.array([0.0, 0.0, 0.0]).reshape(1, -1)
+        return np.array([0.0, 0.0, 0.0]).reshape(1, -1), 0.0
 
 
     #train a classifier on the training data
@@ -284,16 +284,23 @@ def eval_results(path='./E_TO_E_no_XE_400/DEFAULT/EXP_1_trial_65/activity/', tra
         score, permutation_scores, pvalue = permutation_test_score(clf, x_test, y_test, scoring="balanced_accuracy", cv=5, n_permutations=100, n_jobs=1)
         print( "Classification score %s (pvalue : %s)" % (score, pvalue))
 
-    print("===Testing with all neurons===")
+    print("===Testing on all neurons===")
     #test the cross val for each neuron
     neuron_cross_val = {}
     for neuron in np.arange(testing_result_monitor.shape[1]):
         clf = svm.SVC()
         scores = cross_val_score(clf, testing_result_monitor[idx_include,neuron].reshape(-1, 1), testing_input_numbers[idx_include], cv=5, scoring='balanced_accuracy')
         neuron_cross_val[neuron] = scores
-        print(f"Cross Val Acc {np.nanmean(scores)}")
-        #print(f"Cross Val Acc {np.nanstd(scores)}")
-    #save the dict
+        print(f"Cross Val Acc {np.nanmean(scores)} for neuron {neuron}")
+
+    print("===Testing with all neurons===")
+    #test the cross val for each neuron
+    incremental_neuron_cross_val = {}
+    for neuron in np.arange(2, testing_result_monitor.shape[1]):
+        clf = svm.SVC()
+        scores = cross_val_score(clf, testing_result_monitor[idx_include,:neuron], testing_input_numbers[idx_include], cv=5, scoring='balanced_accuracy')
+        incremental_neuron_cross_val[neuron] = scores
+        print(f"Cross Val Acc {np.nanmean(scores)} for neuron {neuron}")
 
     df = pd.DataFrame.from_dict(neuron_cross_val, orient='index')
     df.to_csv(data_path+'neuron_cross_val.csv')
@@ -310,8 +317,8 @@ def eval_results(path='./E_TO_E_no_XE_400/DEFAULT/EXP_1_trial_65/activity/', tra
             outgoing_w = weight_mat[:,:, _]
             
             #min max scale by row
-            incoming_w = MinMaxScaler().fit_transform(incoming_w).T
-            outgoing_w = MinMaxScaler().fit_transform(outgoing_w).T
+            #incoming_w = MinMaxScaler().fit_transform(incoming_w).T
+            #outgoing_w = MinMaxScaler().fit_transform(outgoing_w).T
 
             
             fig, ax = plt.subplots(1,2, num=999+_)
@@ -320,9 +327,31 @@ def eval_results(path='./E_TO_E_no_XE_400/DEFAULT/EXP_1_trial_65/activity/', tra
             ax[1].imshow(outgoing_w.T, aspect='auto')
             ax[1].set_title('Outgoing weights')
 
-    #plt.show()
-    return neuron_cross_val
+    #load the weights
+    weights = glob.glob(data_path+'weights_xe_*.npy')
+
+    if len(weights)> 0:
+        weight_mat = [np.load(x).reshape(784, 400) for x in weights]
+        weight_mat = np.dstack(weight_mat).T
+        for _ in np.arange(20):
+            #weight_mat[_,:,_] = 0
+            incoming_w = weight_mat[:,_, :]
+            outgoing_w = weight_mat[:,:, _]
+            
+            #min max scale by row
+            #incoming_w = MinMaxScaler().fit_transform(incoming_w).T
+            #outgoing_w = MinMaxScaler().fit_transform(outgoing_w).T
+
+            
+            fig, ax = plt.subplots(1,2, num=999+_*2)
+            ax[0].imshow(incoming_w.T, aspect='auto')
+            ax[0].set_title('Incoming weights')
+            ax[1].imshow(outgoing_w.T, aspect='auto')
+            ax[1].set_title('Outgoing weights')
+
+    plt.show()
+    return neuron_cross_val, np.mean(sum_accurracy), incremental_neuron_cross_val
     
 
 if __name__=="__main__":
-    eval_results(path="//home/smestern/Dropbox/brian2_SDTP/stdp-mnist-brian2/E_TO_E_no_XE_400/SCAN_SDTP/EXP_1_trial_1/activity/")
+    eval_results(path=".//E_TO_E_no_XE_400//SCAN//EXP_1_trial_0//activity//",sum_total_tests=150)

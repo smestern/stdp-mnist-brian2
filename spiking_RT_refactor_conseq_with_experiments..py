@@ -27,20 +27,21 @@ from dataset_handler import mnistDataHandler as mnistDataHandler
 #set the numpy seed
 np.random.seed(42)
 defaultclock.dt = 0.1*ms
-SCANNING = True 
+SCANNING = True
 #------------------------------------------------------------------------------
 #argparse here unfortunately. Since this script needs to run in the global scope
 #we need to set the variables here
 
 parser = argparse.ArgumentParser(description='set the experiment parameters')
-parser.add_argument('--scale_XeAe', type=float, default=53.530612244898)
-parser.add_argument('--scale_AeAe', type=float, default=74.3333333333333)
-parser.add_argument('--scale_AeAe_mute', type=float, default=12.88)
-parser.add_argument('--nu_pre_ee_post', type=float, default=6.49381631576212E-07)
-parser.add_argument('--nu_post_ee_pre', type=float, default=0.354813389233575)
-parser.add_argument('--tc_theta', type=float, default=1e7)
-parser.add_argument('--SDTP_ALL_OFF', type=int, default=0)
-parser.add_argument('--test_mode', type=int, default=0)
+parser.add_argument('--scale_XeAe', type=float, default=15.1428571428571)
+parser.add_argument('--scale_AeAe', type=float, default=23.0)
+parser.add_argument('--scale_AeAe_mute', type=float, default=72.28)
+parser.add_argument('--nu_pre_ee_post', type=float, default=2.37137370566166E-06)
+parser.add_argument('--nu_post_ee_pre', type=float, default=2.98538261891797E-07)
+parser.add_argument('--tc_theta', type=float, default=123284.673944207)
+parser.add_argument('--num_examples', type=int, default=150)
+parser.add_argument('--SDTP_ALL_OFF', type=int, default=1)
+parser.add_argument('--test_mode', type=int, default=1)
 args = parser.parse_args()
 _scale_XeAe = args.scale_XeAe
 _scale_AeAe = args.scale_AeAe
@@ -48,6 +49,7 @@ _scale_AeAe_mute = args.scale_AeAe_mute
 _nu_pre_ee_post =  args.nu_pre_ee_post
 _nu_post_ee_pre = args.nu_post_ee_pre
 _tc_theta = args.tc_theta
+_num_examples = args.num_examples
 _test_mode = bool(args.test_mode)
 SDTP_ALL_OFF = bool(args.SDTP_ALL_OFF)
 print(args)
@@ -108,7 +110,7 @@ test_mode = _test_mode
 DYN_CLAMP = False
 BLANKED = False
 CLEAR_OUTPUT = True
-NUM_EXAMPLES=  300
+NUM_EXAMPLES= _num_examples
 Nneurons = 400
 
 #settings modified by the experiments
@@ -156,10 +158,14 @@ elif EXP_4:
     EXP_4_path = make_exp_paths(EXP_4_path, neuron_num, trial_num, TEST_MODE)
     data_path = EXP_4_path
     SDTP=False
+
+    E_TO_E = True
     EE_SDTP = True
     MUTE_NEURONS=np.arange(10).tolist()
 
+
 if SDTP_ALL_OFF:
+    print("SDTP ALL OFF")
     SDTP = False
     EE_SDTP = False
 
@@ -192,6 +198,10 @@ def save_metadata():
     pickle.dump(results, open(data_path + 'metadata.pickle', 'wb'))
 
 def normalize_weights_xe(muteNeurons=None):
+    if SDTP_ALL_OFF:
+        return
+    if TEST_MODE:
+        return
     len_source = len(connections_xeae.source)
     len_target = len(connections_xeae.target)
     connection = np.zeros((len_source, len_target))
@@ -210,6 +220,10 @@ def normalize_weights_xe(muteNeurons=None):
     connections_xeae.w = temp_conn[connections_xeae.i, connections_xeae.j]
 
 def normalize_weights_ae(muteNeurons=None, muteNeurons_ae_sf=_scale_AeAe_mute):
+    if SDTP_ALL_OFF:
+        return
+    if TEST_MODE:
+        return
     len_source = len(connections_aeae.source)
     len_target = len(connections_aeae.target)
     connection = np.zeros((len_source, len_target))
@@ -311,7 +325,7 @@ input_intensity = 4.
 if test_mode:
     #load the metadata back in from the fitting
     metadata = pickle.load(open(data_path + 'metadata.pickle', 'rb'))
-    input_intensity = metadata['input_intensity']
+    input_intensity = 2. #metadata['input_intensity']
 else:
     input_intensity = 2.
 start_input_intensity = input_intensity
@@ -438,13 +452,16 @@ connections_aiae.w = weightMatrix[AiAe_idxs[:,0], AiAe_idxs[:,1]]
 if E_TO_E:
     if test_mode:
         weightMatrix = get_matrix_from_file(data_path + 'weights/AeAe.npy', n_e, n_e)
+        if SDTP_ALL_OFF:
+            weightMatrix2  = get_matrix_from_file(data_path + 'random/AeAe.npy', n_e, n_e)
+            assert np.all(weightMatrix == weightMatrix2)
     else:
         weightMatrix = get_matrix_from_file(data_path + 'random/AeAe.npy', n_e, n_e)
     model = 'w : 1'
     pre = 'ge_post += w'
     post = ''
 
-    if not test_mode and EE_SDTP:
+    if test_mode==False and EE_SDTP==True:
         print( 'create STDP for connection AeAe')
         model += eqs_stdp_ee
         pre += '; ' + eqs_stdp_pre_ee
@@ -477,17 +494,21 @@ input_groups_xe.rates = np.full((n_input), 0.0, dtype=np.float32) * b.Hz
 print( 'create connections between X and A')
 if test_mode:
     weightMatrix = get_matrix_from_file(data_path + 'weights/XeAe.npy', n_input, n_e)
+    if SDTP_ALL_OFF:
+            weightMatrix2  = get_matrix_from_file(data_path + 'random/XeAe.npy', n_input, n_e)
+            assert np.all(weightMatrix == weightMatrix2)
 else:
     weightMatrix = get_matrix_from_file(data_path + 'random/XeAe.npy', n_input, n_e)
 model = 'w : 1'
 pre = 'ge_post += w'
 post = ''
 
-if not test_mode and SDTP:
+if (test_mode==False) and SDTP:
     print( 'create STDP for connection XeAe')
     model += eqs_stdp_ee
     pre += '; ' + eqs_stdp_pre_ee
     post = eqs_stdp_post_ee
+
 
 connections_xeae = b.Synapses(input_groups_xe, neuron_groups_ae,
                                             model=model, on_pre=pre, on_post=post)
@@ -516,9 +537,9 @@ if DYN_CLAMP:
     device = init_neuron_device(device, scalefactor_out=2.5)
 zero_arr = np.zeros(n_input)
 #param_rate = initialize_parameter(input_groups_xe.rates, zero_arr )
-run(single_example_time, report='text')
+run(single_example_time)
 
-device.build(compile=True, run=False,  debug=False)
+device.build(compile=True, run=False,  debug=False, clean=True)
 
 #------------------------------------------------------------------------------
 # load MNIST
@@ -596,8 +617,9 @@ while k < (int(NUM_EXAMPLES)):
             spike_times.append(spike_counters_ae.t[spike_counters_ae.i==0])
         else:
             #during training dump the weight matrix with_i
-            if not test_mode and j % 10 == 0:
+            if not test_mode and j % 2 == 0:
                 np.save(data_path + 'activity/weights_ae_' + str(j), connections_aeae.w)
+                np.save(data_path + 'activity/weights_xe_' + str(j), connections_xeae.w)
         if k % 100 == 0 and k > 0:
             print( 'runs done:', j, 'of', int(NUM_EXAMPLES)) 
         rate = zero_arr
